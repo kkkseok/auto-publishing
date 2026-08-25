@@ -154,12 +154,13 @@ def _check_aliexpress() -> None:
                "generatePromotionLink.htm"
                f"?trackId={track_id}"
                "&targetUrl=https%3A%2F%2Fwww.aliexpress.com")
+        # UA 는 sources.aliexpress.FIXED_UA 와 동일해야 한다 — 로그인 시점과 다른
+        # OS 를 주장하면 알리가 세션을 조기 무효화한다 (2026-08-25 UA 통일).
+        from sources.aliexpress import FIXED_UA
         r = s.get(url, headers={
             "accept": "application/json, text/plain, */*",
             "referer": "https://portals.aliexpress.com/affiportals/web/link_generator.htm",
-            "user-agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/124.0.0.0 Safari/537.36"),
+            "user-agent": FIXED_UA,
         }, timeout=15)
         if r.ok and r.text.strip().startswith("{"):
             log("[aliexpress] 제휴 세션 유효 (portals JSON 응답)", "ok")

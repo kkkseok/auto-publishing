@@ -31,7 +31,15 @@ _DATA_DIR     = os.path.join(_BASE_DIR, "data")
 COOKIE_PATH   = os.path.join(_DATA_DIR, "aliexpress_cookies.pkl")
 STORAGE_PATH  = os.path.join(_DATA_DIR, "aliexpress_storage.json")
 
-FIXED_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# tools/aliexpress_manual_login.py 의 _USER_AGENT 와 **반드시 동일해야 한다**.
+#
+# 2026-08-25 이전에는 여기가 macOS UA 인데 수동 로그인 도구는 Windows UA 였다.
+# 알리는 xman_t/sgcookie 등에 디바이스 fingerprint 를 묶으므로, Windows 로
+# 로그인해 받은 세션을 macOS 라 주장하는 컨텍스트가 쓰면 조기에 무효화된다.
+# 실측: 수동 로그인 후 7일 만에 제휴 세션 사망(08-11 → 08-18).
+FIXED_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36")
 
 
 # ─── JSON 추출 헬퍼 ─────────────────────────────────────────────────────────
@@ -185,6 +193,9 @@ class AliexpressSource:
         self._context = None
         self._page = None
         self._session_reset_done = False  # 세션 초기화 1회만
+        # 로그인 세션 파일을 실제로 불러왔는지 — 빈 컨텍스트의 상태로 살아있는
+        # storage 파일을 덮어쓰지 않기 위한 가드 (_save_storage 참조).
+        self._storage_loaded = False
         # 제휴 세션 만료 감지 플래그 — 검색은 비로그인으로도 되지만 제휴링크
         # 생성(_shorten_link)이 로그인 HTML 을 받으면 True. 호출자(파이프라인)는
         # 수집 0건이 '키워드 부적합'인지 '세션 만료'인지 이 값으로 구분한다.
@@ -235,6 +246,7 @@ class AliexpressSource:
             locale="ko-KR",
             storage_state=storage,
         )
+        self._storage_loaded = bool(storage)
 
         # playwright-stealth 로 봇 탐지 우회 (navigator.webdriver 등 패치)
         try:
@@ -248,6 +260,31 @@ class AliexpressSource:
 
         self._page = self._context.new_page()
         return True
+
+    def _save_storage(self, reason: str = "") -> None:
+        """현재 컨텍스트의 세션 상태를 파일에 반영 — 알리가 회전시킨 쿠키를 보존.
+
+        2026-08-25 이전에는 이 저장이 _wait_for_captcha_solve() 안에만 있었다.
+        즉 캡차가 떠서 사람이 푼 경우에만 갱신됐고, 정상 실행에서는 한 번도
+        저장되지 않았다. 실측: storage 파일 mtime 이 두 번의 수동 로그인 시각
+        (08-11 14:33, 08-25 13:37)과만 일치 — 그 사이 14일간 자동 갱신 0회.
+
+        서버가 Set-Cookie 로 세션을 연장해줘도 파일에 반영하지 않으면 매 실행이
+        옛 쿠키를 다시 제출하게 되고, 회전된 쿠키가 무효화되는 순간 세션이
+        죽는다. 알리는 자동 재로그인 경로가 없어(제휴=Google, 자동로그인=Kakao)
+        한 번 죽으면 사람이 개입할 때까지 복구되지 않는다.
+
+        _storage_loaded 가드: 로그인 세션을 실제로 불러온 경우에만 저장한다.
+        세션 파일이 없어 빈 컨텍스트로 뜬 실행이 살아있는 파일을 덮어쓰면
+        멀쩡한 세션을 잃는다.
+        """
+        if self._context is None or not self._storage_loaded:
+            return
+        try:
+            self._context.storage_state(path=STORAGE_PATH)
+            log(f"storage_state 갱신 저장{f' ({reason})' if reason else ''}", "ok")
+        except Exception as e:
+            log(f"storage_state 저장 실패 (무시): {e}", "warn")
 
     def _relogin(self) -> bool:
         """자동 재로그인 비활성화 (2026-05-29).
@@ -309,11 +346,7 @@ class AliexpressSource:
             except Exception:
                 log("검색 데이터 로드 미확인 — HTML 파싱으로 시도", "warn")
             # 세션 상태 저장 (다음 실행 시 재사용)
-            try:
-                self._context.storage_state(path=STORAGE_PATH)
-                log("storage_state 갱신 저장", "ok")
-            except Exception:
-                pass
+            self._save_storage("captcha 해결 후")
             return True
         log("Captcha 대기 시간 초과", "error")
         return False
@@ -673,7 +706,12 @@ class AliexpressSource:
         return result
 
     def close(self):
-        """브라우저/Playwright 종료."""
+        """브라우저/Playwright 종료.
+
+        닫기 직전에 세션을 저장한다 — 이번 실행 동안 알리가 회전시킨 쿠키가
+        여기서 파일에 반영되고, 다음 실행이 그것을 이어받는다.
+        """
+        self._save_storage("close")
         try:
             if self._context:
                 self._context.close()

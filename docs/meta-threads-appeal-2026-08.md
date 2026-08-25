@@ -1,7 +1,16 @@
 # Meta 플랫폼 약관 7.e.i.2 위반 — 진단 및 이의제기 자료
 
-- **앱 ID**: 1637029624216135
+- **Meta 앱**: `auto-publishing` — **앱 ID 1655751472297844** (제한된 앱, 이의제기 대상)
+- **Threads App ID**: 1637029624216135 (`.env` `THREADS_APP_ID`)
 - **계정**: @sasohan.insight
+
+> 두 ID는 다르다. Threads API는 Meta 앱 안에 "Threads API" 제품을 추가하는
+> 구조라 Threads 전용 App ID가 별도로 발급된다. 제한 조치와 이의제기는 **Meta
+> 앱 ID** 기준이다. 초기 진단에서 `graph.facebook.com/{app_id}` 조회가
+> "Error validating application"으로 실패한 것도 Threads App ID를 Facebook
+> Graph에 물어봤기 때문이며, 앱 차단의 근거로 삼기에는 약한 신호였다.
+> 차단은 개발자 콘솔의 "제한된 앱(1개)" 목록으로 확정했다.
+- **이의제기 URL**: https://developers.facebook.com/apps/1655751472297844/violations_and_appeals/
 - **차단 감지**: 2026-08-18 13:00 (`API access deactivated.`, OAuthException code 200)
 - **차단 지속**: 2026-08-25 현재까지 70건 연속 발행 실패
 - **통지 사유**: 플랫폼 약관 7.e.i.2 — 플랫폼·제품·데이터·사용자에게 부정적인 영향
@@ -146,7 +155,7 @@ subprocess이고, 텔레그램 답글을 받는 long-poll 스레드는 scheduler
 ### 4.1 한국어
 
 ```
-앱 ID: 1637029624216135
+앱 ID: 1655751472297844 (auto-publishing)
 
 ■ 앱의 용도
 
@@ -224,7 +233,7 @@ Threads 공식 Graph API만 사용하며 스크래핑이나 비공식 경로를 
 ### 4.2 영어 (심사자가 영어권일 경우 병기 권장)
 
 ```
-App ID: 1637029624216135
+App ID: 1655751472297844 (auto-publishing)
 
 ■ Purpose of the app
 

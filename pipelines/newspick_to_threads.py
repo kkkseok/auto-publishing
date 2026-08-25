@@ -61,10 +61,17 @@ def run(category: str = "추천") -> None:
     log(f"기사: {title[:50]}", "info")
 
     # 2) AI Threads 캡션
+    #
+    # 생성 실패 시 예전에는 "제목 + 👇 자세한 내용은 아래에서" 로 폴백 발행했는데,
+    # 뉴스픽 기사 제목은 원문 언어 그대로라 한국어 계정에 베트남어/영어 게시물이
+    # 섞여 나갔다. 이것이 Meta 플랫폼 약관 7.e.i.2 조치(2026-08-18)의 개연성
+    # 높은 원인 중 하나여서, 폴백을 없애고 생성 실패는 발행 취소로 처리한다.
     caption = generate_newspick_threads_caption(title, category=category, max_chars=230)
     if not caption:
-        # 폴백 — 단순 제목 + 안내
-        caption = f"{title}\n\n👇 자세한 내용은 아래에서"
+        log("AI 캡션 생성 실패 — 발행 취소 (원문 제목 폴백 금지)", "error")
+        from common.notifier import notify_pipeline_result
+        notify_pipeline_result("뉴스픽→Threads", 0, 1, details="AI 캡션 생성 실패")
+        return
 
     # 3) 본문 = 캡션 + 빈 줄 + 단축링크 (뉴스픽 고지는 미부착)
     body = caption

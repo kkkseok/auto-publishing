@@ -60,6 +60,45 @@ _PATTERNS: list[tuple[re.Pattern, str, str]] = [
         ".env COUPANG_ACCESS_KEY/SECRET_KEY 교체 후 python -m tools.coupang_source_roi 로 확인",
     ),
     (
+        # 발행 게이트가 의도대로 막은 경우 — 장애가 아니다. 발행 0건이라 ledger 는
+        # failure 로 잡히지만, 원인 라벨은 '정상 차단'임이 드러나야 한다.
+        # (Meta 7.e.i.2 시정 조치, docs/meta-threads-appeal-2026-08.md)
+        re.compile(r"발행\s*승인\s*없음|승인\s*요청\s*발송\s*실패|"
+                   r"운영자\s*거부|분\s*내\s*승인\s*없음", re.I),
+        "Threads 발행 미승인 (사람 승인 게이트)",
+        "텔레그램 승인 요청에 답글(ok) — 무응답 시 발행하지 않음이 정상 동작",
+    ),
+    (
+        re.compile(r"발행\s*게이트\s*차단|일일\s*상한\s*\d+건\s*도달|"
+                   r"제휴\s*비중\s*\d+%\s*>\s*상한", re.I),
+        "Threads 발행량 상한 도달 (정상 차단)",
+        "조치 불필요 — THREADS_MAX_* 로 조정 가능",
+    ),
+    (
+        # AI 캡션 실패 → 폴백 발행 금지로 취소. thin content 게이트와 같은 성격.
+        re.compile(r"AI\s*캡션\s*생성\s*실패|폴백\s*금지", re.I),
+        "Threads AI 캡션 생성 실패 (폴백 발행 차단)",
+        "ANTHROPIC_API_KEY / GEMINI_API_KEY 상태 확인 — 다음 슬롯에서 자동 재시도",
+    ),
+    (
+        # Threads 앱 사망 — Meta 가 앱의 API 접근을 끈 상태. 토큰 재발급으로는
+        # 복구되지 않는다(액세스 토큰 없이 app_id+secret 만 쓰는 호출도 거부됨).
+        # 아래 'Threads 토큰 만료'/rate-limit 과 원인·조치가 전혀 달라 먼저 매칭한다.
+        # 2026-08-18~08-25 실측: 전 Threads 채널 70건 연속 실패가 폴백 라벨
+        # '컨테이너 생성 실패' 로만 보여 일주일간 원인이 드러나지 않았다.
+        re.compile(r"API\s*access\s*deactivated", re.I),
+        "Threads 앱 API 접근 차단 (Meta 앱 비활성)",
+        "developers.facebook.com 앱 상태 확인 — 토큰 재발급으로는 복구 불가",
+    ),
+    (
+        # 위와 달리 이쪽은 재발급으로 풀린다. code 190 은 다른 플랫폼에도 나오므로
+        # 같은 stderr 안에 Threads 문구가 있을 때만 Threads 로 단정한다.
+        re.compile(r"Threads[\s\S]{0,300}?(Session\s*has\s*expired|"
+                   r"Invalid\s*OAuth\s*access\s*token|\"code\"\s*:\s*190)", re.I),
+        "Threads 액세스 토큰 만료",
+        "python -m common.threads_token oauth 로 재발급",
+    ),
+    (
         re.compile(r"/auth/login|Kakao\s*로그인\s*실패|Kakao\s*페이지\s*전환\s*실패", re.I),
         "Kakao(티스토리) 세션 만료",
         "python -m tools.verify_tistory_login <blog>",

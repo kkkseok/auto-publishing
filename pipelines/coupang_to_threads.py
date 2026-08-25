@@ -17,8 +17,8 @@
              타임라인에서 독립 게시물로 노출되므로).
 
 실행:
-    python -m pipelines.coupang_to_threads                       # chain (기본)
-    python -m pipelines.coupang_to_threads --mode single
+    python -m pipelines.coupang_to_threads                       # single (기본)
+    python -m pipelines.coupang_to_threads --mode chain
     python -m pipelines.coupang_to_threads --keyword 무선이어폰
 """
 from __future__ import annotations
@@ -37,6 +37,7 @@ from common.ai_intro import (
 )
 from common.logger import log
 from common.url_shortener import shorten as shorten_url
+from publishers.base import PostResult
 from publishers.threads import ThreadsPublisher
 from sources.coupang import CoupangSource
 
@@ -62,7 +63,7 @@ def _shorten(url: str) -> str:
 
 
 def _publish_single(pub: ThreadsPublisher, kw: str, product: dict,
-                    short_link: str) -> "object":
+                    short_link: str) -> PostResult:
     """단일 게시물 발행 (기본 모드).
 
     한 게시물에 후킹 + 디테일 + 마무리 모두 담기므로 chain 보다 글자 수
@@ -70,7 +71,12 @@ def _publish_single(pub: ThreadsPublisher, kw: str, product: dict,
     """
     caption = generate_threads_caption(kw, product, short_url=short_link, max_chars=230)
     if not caption:
-        caption = (product.get("name", "") or "")[:60]
+        # 예전에는 상품명만 잘라 폴백 발행했다. 그렇게 나간 게시물은 본문이
+        # 사실상 상품명 한 줄뿐이라 저품질 신호가 되고, Meta 플랫폼 약관
+        # 7.e.i.2 조치(2026-08-18)의 개연성 높은 원인 중 하나였다.
+        # 생성 실패는 발행 취소로 처리한다.
+        log("AI 캡션 생성 실패 — 발행 취소 (상품명 폴백 금지)", "error")
+        return PostResult(success=False, message="AI 캡션 생성 실패")
 
     body = caption
     if short_link:
@@ -86,7 +92,7 @@ def _publish_single(pub: ThreadsPublisher, kw: str, product: dict,
 
 
 def _publish_chain(pub: ThreadsPublisher, kw: str, product: dict,
-                    short_link: str) -> "object":
+                    short_link: str) -> PostResult:
     """3편 reply chain 발행 — Threads 알고리즘 우호 패턴."""
     chain_parts = generate_threads_chain(
         kw, product, short_url=short_link, max_chars_each=150)

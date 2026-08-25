@@ -217,14 +217,21 @@ def notify_login_intervention(platform: str, hint: str, url: str = "") -> None:
     _notify(text)
 
 
+_DEFAULT_LOGIN_REASON = "자동 로그인이 차단됐습니다 (약관/봇탐지/세션만료)."
+
+
 def notify_login_required(platform: str, instructions: str = "",
-                          *, throttle_hours: int = 24) -> None:
-    """자동 로그인 가드 발동 — 사용자가 직접 1회 로그인해야 storage 발급되는 상황.
+                          *, throttle_hours: int = 24,
+                          reason: str = _DEFAULT_LOGIN_REASON) -> None:
+    """사람이 1회 개입해야만 풀리는 자격증명 장애 알림.
 
     예: 알리 약관 동의 → 카카오 redirect 실패 → 가드 발동.
     같은 platform 으로 throttle_hours 시간 내 재호출 시 스팸 방지로 skip.
 
     instructions 예: "ALIEXPRESS_HEADLESS=false python -m common.aliexpress_login"
+
+    reason 은 로그인 만료가 아닌 장애(예: Meta 가 앱의 API 접근을 끈 경우)에서
+    기본 문구가 오해를 부르므로 호출자가 덮어쓸 수 있게 열어둔 것이다.
     """
     import json as _json
     from pathlib import Path as _Path
@@ -256,7 +263,7 @@ def notify_login_required(platform: str, instructions: str = "",
         f"🔐 <b>[Auto Publishing 수동 로그인 필요]</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 {platform}\n"
-        f"📝 자동 로그인이 차단됐습니다 (약관/봇탐지/세션만료).\n"
+        f"📝 {reason}\n"
         + (f"💡 {instructions}\n" if instructions else "")
         + f"🕒 {now}\n"
         + f"━━━━━━━━━━━━━━━━━━━━\n"

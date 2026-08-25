@@ -442,10 +442,20 @@ def _telegram_send_photo(image_b64: str, caption: str) -> Optional[int]:
 
 
 def _telegram_long_poll_loop() -> None:
-    """텔레그램 봇 getUpdates long-poll — 사용자가 캡차 메시지에 답글 달면 수신.
+    """텔레그램 봇 getUpdates long-poll — 사용자 답글을 수신해 라우팅.
 
-    reply_to_message.message_id 로 어느 캡차 요청의 답변인지 매칭 →
-    set_captcha_answer() 로 저장. content.js 가 polling 으로 가져감.
+    reply_to_message.message_id 로 무엇에 대한 답글인지 매칭한다:
+
+      1. Threads 발행 승인 (common/threads_approval.py) — 먼저 확인
+      2. DKAPTCHA 답안 (common/tistory_queue.py)
+
+    Threads 승인을 먼저 보는 이유: 승인 요청은 파일(data/threads_approvals.json)
+    에 pending 으로 남아 있어 매칭이 확정적이지만, 캡차는 in-memory 라 이미
+    처리된 뒤일 수 있다. 매칭 실패 시 False 를 받아 캡차 경로로 넘어간다.
+
+    getUpdates 는 offset 으로 확정되면 다른 소비자가 같은 업데이트를 볼 수 없다.
+    그래서 이 루프가 텔레그램 답글의 **유일한** 소비자여야 한다 — 파이프라인
+    subprocess 는 브릿지가 살아있으면 직접 폴링하지 않고 파일만 본다.
     """
     try:
         import requests
@@ -477,6 +487,15 @@ def _telegram_long_poll_loop() -> None:
                 text = (msg.get("text") or "").strip()
                 if not text or not reply_msg_id:
                     continue
+                # 1) Threads 발행 승인 — 파일 기반이라 매칭이 확정적
+                try:
+                    from common.threads_approval import resolve_by_tg_message_id
+                    if resolve_by_tg_message_id(reply_msg_id, text):
+                        continue
+                except Exception as e:
+                    log(f"[bridge] Threads 승인 처리 예외 (캡차로 계속): {e}", "warn")
+
+                # 2) DKAPTCHA 답안
                 item_id = find_item_by_tg_message_id(reply_msg_id)
                 if item_id:
                     set_captcha_answer(item_id, text)

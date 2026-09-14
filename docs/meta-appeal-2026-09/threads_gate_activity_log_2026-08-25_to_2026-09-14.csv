@@ -1,0 +1,45 @@
+﻿timestamp_kst,pipeline,event,detail,published_to_threads
+2026-08-25T21:00:16,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-25T21:00:16,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-26T12:30:07,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-08-26T21:00:22,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-26T21:00:22,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-27T12:30:14,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-08-27T21:00:12,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-27T21:00:12,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-28T12:30:08,coupang_to_threads,META_API_REJECTED_APP_DEACTIVATED,Threads API returned OAuthException code 200 'API access deactivated',NO
+2026-08-28T21:00:10,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-28T21:00:10,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-29T12:54:02,coupang_to_threads,META_API_REJECTED_APP_DEACTIVATED,Threads API returned OAuthException code 200 'API access deactivated',NO
+2026-08-29T21:00:11,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-29T21:00:11,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-30T12:30:28,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-08-30T21:00:21,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-30T21:00:21,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-08-31T12:30:27,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-08-31T21:00:02,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-08-31T21:00:02,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-01T12:30:07,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-01T21:00:14,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-01T21:00:14,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-02T12:30:26,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-03T10:46:10,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-03T10:46:10,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-03T12:30:13,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-07T16:41:16,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-08T15:29:44,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-08T21:00:29,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-08T21:00:29,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-09T13:52:38,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-10T09:45:06,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-10T09:45:06,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-10T12:30:16,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-10T21:00:18,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-10T21:00:18,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-11T12:30:19,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-11T21:00:24,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-11T21:00:24,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-12T14:11:24,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO
+2026-09-12T21:00:21,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 42 chars < minimum 80 chars,NO
+2026-09-12T21:00:21,backlink_to_sns,BLOCKED_BY_QUALITY_GATE,substantive body 43 chars < minimum 80 chars,NO
+2026-09-14T12:30:23,coupang_to_threads,NOT_PUBLISHED_NO_OPERATOR_APPROVAL,no operator approval within 10 min -> not published (fail-closed),NO

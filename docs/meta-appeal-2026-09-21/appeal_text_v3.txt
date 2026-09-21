@@ -1,0 +1,21 @@
+App: auto-publishing | App ID: 1655751472297844
+Request: manual review and specific findings under Platform Term 7.e.i.2
+
+My app remains restricted after my responses of August 25 and September 14, 2026. I understand the general concern about negative impact on the platform or its users. The notice available to me does not identify the particular offending request, post, or behavior, so I cannot yet confirm the specific enforcement cause.
+
+I request a manual review and clarification of the concrete finding, including relevant post IDs or API request timestamps if available. Please also clarify whether this enforcement concerns publishing behavior, app configuration/data handling, or an associated account restriction, and what evidence or change is still required for reinstatement.
+
+A further source-code audit on September 21 found that parts of my previous remediation description were too broad. The previous controls were enabled in configuration, but their code still allowed disabling the quality/approval gates. The affiliate-ratio check also had an exception for fewer than ten prior posts. Reply chains were disabled in configuration but remained callable. OAuth requested a reply-management permission in addition to the two permissions described in my previous response. I am correcting these statements rather than claiming the earlier implementation enforced them unconditionally.
+
+The following changes have now been implemented locally:
+1. Threads publishing and token-refresh schedules are disabled. A persistent API hold blocks publishing, profile/permalink lookups, token maintenance and the repository's OAuth/URL-repair helpers until I record confirmation of Meta reinstatement. The scheduler was restarted to load the change.
+2. Disabling either the quality gate or approval gate now blocks publishing. Approval replies must come from the configured review chat. The reply publishing path is disabled in code.
+3. Local ceilings are three posts per day, one affiliate post per day, and a projected affiliate ratio of 30% across the last 30 calendar dates, including today. The ratio applies from the first proposed affiliate post. Configuration can tighten these ceilings, but cannot raise them. These are my own safeguards, not thresholds stated by Meta.
+4. Concurrent publishers are serialized; unreadable quota records block publishing. Failure to record a successful post suspends further API activity. Explicit API-access-deactivated responses also persist a hold.
+5. Future OAuth requests are limited to threads_basic and threads_content_publish. This code change does not claim to revoke previously granted permissions.
+
+Sixteen offline regression cases passed, including blocked network access during the hold, disabled-gate behavior, quota limits, concurrent-publisher exclusion, cross-chat approval rejection and the approved publishing path with mocked HTTP responses. No live Threads post or Meta API probe was made during this remediation.
+
+For clarity, the prior evidence CSV includes two API-rejected events while the app was deactivated. Zero published posts did not mean zero API attempts. The new attachment distinguishes retained pipeline-run records, gate events, and local queued-post records. These local records are not a complete network log or independent evidence of all activity on the Threads account.
+
+Please review the attached corrective evidence and identify any remaining requirement. I will keep the app's Threads API activity suspended while the restriction remains in place.

@@ -13,15 +13,34 @@ Meta 공식 Threads API (graph.threads.net/v1.0) 사용.
 import os
 import time
 import urllib.parse
+from functools import wraps
 from typing import Optional
 
 import requests
 
 from common.logger import log
+from common.threads_access import blocked_reason, observe_error, suspend
 from .base import Publisher, PostResult
 
 
 GRAPH_BASE = "https://graph.threads.net/v1.0"
+
+
+def _serialized_publish(func):
+    @wraps(func)
+    def wrapped(self, *args, **kwargs):
+        reason = blocked_reason()
+        if reason:
+            log(reason, "warn")
+            return PostResult(success=False, message=reason)
+        try:
+            from common.threads_guard import publication_lock
+            with publication_lock():
+                return func(self, *args, **kwargs)
+        except Exception as exc:
+            log(f"Threads 발행 중단: {type(exc).__name__}", "error")
+            return PostResult(success=False, message=f"Threads 발행 중단: {type(exc).__name__}")
+    return wrapped
 
 
 class ThreadsPublisher(Publisher):
@@ -39,12 +58,17 @@ class ThreadsPublisher(Publisher):
 
     def login(self) -> bool:
         """환경변수에서 자격증명 로드 확인."""
+        reason = blocked_reason()
+        if reason:
+            log(reason, "warn")
+            return False
         if not self.user_id or not self.access_token:
             log("THREADS_USER_ID 또는 THREADS_ACCESS_TOKEN 미설정", "error")
             return False
         log(f"Threads API 준비 (user_id={self.user_id[:6]}...)", "ok")
         return True
 
+    @_serialized_publish
     def post(self, title: str, content: str,
              tags: list[str] = None, category: str = "",
              image_url: str = "", **kwargs) -> PostResult:
@@ -108,32 +132,8 @@ class ThreadsPublisher(Publisher):
     # ------------------------------------------------------------------
 
     def post_reply(self, parent_post_id: str, text: str) -> PostResult:
-        """기존 게시물에 reply (답글) 발행 — Threads 스레드 체인용.
-
-        Args:
-            parent_post_id: 부모 post_id (PostResult.post_id 그대로 사용)
-            text: reply 본문 (500자 제한, publisher 가 자르지 않음 — caller 책임)
-        """
-        if len(text) > 500:
-            text = text[:497] + "..."
-        log(f"Threads reply 준비 (parent={parent_post_id[:12]}...): {text[:50]}", "step")
-
-        # reply 도 타임라인에 독립 게시물로 노출되므로 원글과 동일하게 게이트를
-        # 통과시킨다. chain 모드에서 1건이 3게시물로 불어나던 경로를 막는 지점.
-        ok, reason, is_affiliate = self._gate(
-            text, f"reply → parent {parent_post_id[:12]}")
-        if not ok:
-            return PostResult(success=False, message=reason)
-
-        container_id = self._create_container(
-            text, media_type="TEXT", reply_to_id=parent_post_id)
-        if not container_id:
-            return PostResult(success=False, message="reply 컨테이너 생성 실패")
-        time.sleep(2)
-        result = self._publish_container(container_id)
-        if result.success:
-            self._record(is_affiliate)
-        return result
+        """Reply chains remain disabled under the remediation plan."""
+        return PostResult(success=False, message="Threads 연속 답글 발행 중단")
 
     # ------------------------------------------------------------------
     # 발행 게이트 (Meta 플랫폼 약관 7.e.i.2 시정 조치)
@@ -183,7 +183,11 @@ class ThreadsPublisher(Publisher):
             log(f"Threads 발행 보류 (승인): {reason}", "error")
             return False, f"발행 승인 없음: {reason}", is_affiliate
 
-        return True, "", is_affiliate
+        # Approval can span a date boundary or an operator suspension.
+        reason = blocked_reason()
+        if reason:
+            return False, reason, is_affiliate
+        return precheck(text)
 
     @staticmethod
     def _record(is_affiliate: bool) -> None:
@@ -192,7 +196,13 @@ class ThreadsPublisher(Publisher):
             from common.threads_guard import record_published
             record_published(is_affiliate)
         except Exception as e:
-            log(f"Threads 발행량 기록 실패 (무시): {e}", "warn")
+            log(f"Threads 발행량 기록 실패: {type(e).__name__}", "error")
+            try:
+                suspend("Published post could not be recorded; reconcile quota before resuming")
+            except OSError:
+                # The process hold is set before persistence; preserve the real
+                # successful publication result so the caller does not repost it.
+                log("Threads API 중지 상태 저장 실패 — 운영자 확인 필요", "error")
 
     def _alert_fatal_api_error(self, body: str) -> None:
         """API 오류 본문에서 '사람이 개입해야만 풀리는' 상태만 골라 텔레그램 알림.
@@ -205,6 +215,7 @@ class ThreadsPublisher(Publisher):
         notify_login_required 가 24시간 throttle 을 이미 갖고 있어 슬롯마다
         중복 발송되지 않는다.
         """
+        observe_error(body)
         low = (body or "").lower()
         if "api access deactivated" in low:
             platform = "Threads (Meta 앱 API 접근 차단)"
@@ -238,6 +249,8 @@ class ThreadsPublisher(Publisher):
         POST /v1.0/{user_id}/threads
         reply_to_id 가 있으면 부모 게시물에 답글로 달림.
         """
+        if blocked_reason() or reply_to_id:
+            return None
         url = f"{GRAPH_BASE}/{self.user_id}/threads"
         params: dict = {
             "media_type":   media_type,
@@ -250,7 +263,7 @@ class ThreadsPublisher(Publisher):
             params["reply_to_id"] = reply_to_id
 
         try:
-            resp = requests.post(url, params=params, timeout=15)
+            resp = requests.post(url, data=params, timeout=15)
             if resp.ok:
                 container_id = resp.json().get("id", "")
                 log(f"Threads 컨테이너 생성 완료: {container_id}", "ok")
@@ -271,13 +284,16 @@ class ThreadsPublisher(Publisher):
         형식 URL 로는 안 열린다 (404). 정식 URL 은 별도 fields=permalink GET
         호출로 받아야 한다 (shortcode 또는 @username/post/<id> 형식).
         """
+        reason = blocked_reason()
+        if reason:
+            return PostResult(success=False, message=reason)
         url = f"{GRAPH_BASE}/{self.user_id}/threads_publish"
         params = {
             "creation_id":  container_id,
             "access_token": self.access_token,
         }
         try:
-            resp = requests.post(url, params=params, timeout=15)
+            resp = requests.post(url, data=params, timeout=15)
             if not resp.ok:
                 log(f"Threads 발행 실패 ({resp.status_code}): {resp.text[:200]}", "error")
                 self._alert_fatal_api_error(resp.text)
@@ -297,6 +313,8 @@ class ThreadsPublisher(Publisher):
 
     def _fetch_permalink(self, post_id: str) -> str:
         """발행된 글의 정식 permalink 조회 (Threads Graph API)."""
+        if blocked_reason():
+            return ""
         try:
             r = requests.get(
                 f"{GRAPH_BASE}/{post_id}",
@@ -308,6 +326,7 @@ class ThreadsPublisher(Publisher):
                 if permalink:
                     return permalink
             else:
+                observe_error(r.text)
                 log(f"Threads permalink 조회 실패 [{r.status_code}]: {r.text[:200]}", "warn")
         except Exception as e:
             log(f"Threads permalink 조회 예외 (무시): {e}", "warn")
@@ -337,6 +356,8 @@ class ThreadsPublisher(Publisher):
         Returns:
             {'id': ..., 'name': ..., 'threads_profile_picture_url': ..., ...}
         """
+        if blocked_reason():
+            return {}
         url = f"{GRAPH_BASE}/me"
         params = {
             "fields":       "id,name,threads_profile_picture_url,threads_biography",
@@ -348,6 +369,7 @@ class ThreadsPublisher(Publisher):
                 data = resp.json()
                 log(f"Threads 프로필: {data.get('name')} (id={data.get('id')})", "ok")
                 return data
+            observe_error(resp.text)
             log(f"Threads 프로필 조회 실패: {resp.text[:200]}", "error")
             return {}
         except Exception as e:

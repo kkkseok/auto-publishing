@@ -135,6 +135,11 @@ def _make_self_signed_cert() -> tuple[str, str]:
 
 
 def main() -> int:
+    from common.threads_access import blocked_reason
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return 1
     app_id       = os.getenv("THREADS_APP_ID", "")
     redirect_uri = os.getenv("THREADS_REDIRECT_URI", "")
     if not app_id or not redirect_uri:
@@ -154,7 +159,7 @@ def main() -> int:
         "client_id":     app_id,
         "redirect_uri":  redirect_uri,
         # threads_manage_replies 가 있어야 reply chain (스레드 답글) 발행 가능
-        "scope":         "threads_basic,threads_content_publish,threads_manage_replies",
+        "scope":         "threads_basic,threads_content_publish",
         "response_type": "code",
     }
     auth_url = "https://threads.net/oauth/authorize?" + urlencode(auth_params)
@@ -206,6 +211,8 @@ def main() -> int:
     # USER_ID 도 함께 저장 (단기 토큰 발급 시 응답에 포함되지만 별도 호출 필요)
     try:
         import requests
+        if blocked_reason():
+            return 1
         resp = requests.get("https://graph.threads.net/v1.0/me",
                              params={"fields": "id,username", "access_token": long_token},
                              timeout=10)

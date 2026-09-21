@@ -27,6 +27,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
 from dotenv import load_dotenv, set_key
+from common.threads_access import blocked_reason, observe_error
 
 load_dotenv()
 
@@ -66,6 +67,10 @@ def check_token_status() -> dict:
     Returns:
         {'valid': bool, 'expires_at': datetime|None, 'days_left': int, 'user_id': str}
     """
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return {"valid": False, "error": reason}
     cfg = _get_config()
     if not cfg["access_token"]:
         print("[ERROR] THREADS_ACCESS_TOKEN 미설정")
@@ -82,6 +87,7 @@ def check_token_status() -> dict:
         print(f"[OK] 토큰 유효 — 사용자: {data.get('name', '알 수 없음')} (id={data.get('id')})")
         return {"valid": True, "user_id": data.get("id", "")}
     else:
+        observe_error(resp.text)
         err = resp.json().get("error", {})
         msg = err.get("message", resp.text[:200])
         print(f"[ERROR] 토큰 오류: {msg}")
@@ -107,6 +113,10 @@ def refresh_long_lived_token(save: bool = True) -> Optional[str]:
     Returns:
         새 토큰 문자열, 실패 시 None
     """
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return None
     cfg = _get_config()
     if not cfg["access_token"]:
         print("[ERROR] THREADS_ACCESS_TOKEN 미설정")
@@ -129,7 +139,11 @@ def refresh_long_lived_token(save: bool = True) -> Optional[str]:
         return new_token
     else:
         err = resp.json().get("error", {})
+        observe_error(resp.text)
         print(f"[ERROR] 갱신 실패: {err.get('message', resp.text[:300])}")
+        if blocked_reason():
+            print(blocked_reason())
+            return None
         print("  → 토큰이 만료됐거나 24시간 미경과. OAuth 재발급 필요: python -m common.threads_token oauth")
         return None
 
@@ -148,6 +162,10 @@ def exchange_short_to_long(short_token: str, save: bool = True) -> Optional[str]
     Returns:
         장기 토큰 문자열, 실패 시 None
     """
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return None
     cfg = _get_config()
     if not cfg["app_secret"]:
         print("[ERROR] THREADS_APP_SECRET 미설정")
@@ -171,6 +189,7 @@ def exchange_short_to_long(short_token: str, save: bool = True) -> Optional[str]
         return long_token
     else:
         err = resp.json().get("error", {})
+        observe_error(resp.text)
         print(f"[ERROR] 교환 실패: {err.get('message', resp.text[:300])}")
         return None
 
@@ -188,6 +207,10 @@ def get_short_lived_token(auth_code: str) -> Optional[str]:
     Returns:
         단기 토큰 문자열, 실패 시 None
     """
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return None
     cfg = _get_config()
     missing = [k for k in ("app_id", "app_secret", "redirect_uri") if not cfg[k]]
     if missing:
@@ -211,6 +234,7 @@ def get_short_lived_token(auth_code: str) -> Optional[str]:
         return short_token
     else:
         err = resp.json().get("error", {})
+        observe_error(resp.text)
         print(f"[ERROR] 단기 토큰 발급 실패: {err.get('message', resp.text[:300])}")
         return None
 
@@ -228,6 +252,10 @@ def run_oauth_flow() -> Optional[str]:
     Returns:
         장기 토큰 문자열, 실패 시 None
     """
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return None
     cfg = _get_config()
     missing = [k for k in ("app_id", "redirect_uri") if not cfg[k]]
     if missing:
@@ -238,8 +266,7 @@ def run_oauth_flow() -> Optional[str]:
     auth_params = {
         "client_id":     cfg["app_id"],
         "redirect_uri":  cfg["redirect_uri"],
-        # threads_manage_replies 가 있어야 reply chain 발행 가능
-        "scope":         "threads_basic,threads_content_publish,threads_manage_replies",
+        "scope":         "threads_basic,threads_content_publish",
         "response_type": "code",
     }
     auth_url = "https://threads.net/oauth/authorize?" + urlencode(auth_params)

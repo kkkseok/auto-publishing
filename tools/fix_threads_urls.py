@@ -33,6 +33,9 @@ GRAPH_BASE = "https://graph.threads.net/v1.0"
 
 
 def fetch_permalink(post_id: str, access_token: str) -> str:
+    from common.threads_access import blocked_reason, observe_error
+    if blocked_reason():
+        return ""
     try:
         r = requests.get(
             f"{GRAPH_BASE}/{post_id}",
@@ -41,6 +44,7 @@ def fetch_permalink(post_id: str, access_token: str) -> str:
         )
         if r.ok:
             return r.json().get("permalink", "")
+        observe_error(r.text)
         print(f"  ✗ {post_id}: {r.status_code} {r.text[:80]}")
     except Exception as e:
         print(f"  ✗ {post_id}: {e}")
@@ -48,6 +52,11 @@ def fetch_permalink(post_id: str, access_token: str) -> str:
 
 
 def main() -> int:
+    from common.threads_access import blocked_reason
+    reason = blocked_reason()
+    if reason:
+        print(reason)
+        return 1
     dry = "--dry-run" in sys.argv
     token = os.getenv("THREADS_ACCESS_TOKEN", "").strip().strip('"').strip("'")
     if not token:

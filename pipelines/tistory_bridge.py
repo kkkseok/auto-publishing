@@ -490,7 +490,8 @@ def _telegram_long_poll_loop() -> None:
                 # 1) Threads 발행 승인 — 파일 기반이라 매칭이 확정적
                 try:
                     from common.threads_approval import resolve_by_tg_message_id
-                    if resolve_by_tg_message_id(reply_msg_id, text):
+                    if resolve_by_tg_message_id(
+                            reply_msg_id, text, chat_id=msg.get("chat", {}).get("id")):
                         continue
                 except Exception as e:
                     log(f"[bridge] Threads 승인 처리 예외 (캡차로 계속): {e}", "warn")

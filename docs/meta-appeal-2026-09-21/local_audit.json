@@ -1,0 +1,157 @@
+{
+  "generated_at": "2026-09-21T15:43:52.768664+09:00",
+  "restricted_app_id_from_user_screenshot": "1655751472297844",
+  "scope": "Local repository and retained logs only; no Meta dashboard or API verification",
+  "limitations": [
+    "stderr_tail is partial, not a complete HTTP traffic log",
+    "pipeline runs, gate events and posts are different units",
+    "queue records do not prove account-wide posting history",
+    "local control thresholds are not Meta policy thresholds"
+  ],
+  "configuration_allowlist": {
+    "SCHEDULE_COUPANG_THREADS": "",
+    "SCHEDULE_NEWSPICK_THREADS": "",
+    "SCHEDULE_ALIEXPRESS_THREADS": "",
+    "SCHEDULE_THREADS_REFRESH": "",
+    "SCHEDULE_BACKLINK_SNS": "",
+    "THREADS_GUARD_ENABLED": "true",
+    "THREADS_APPROVAL_REQUIRED": "true",
+    "THREADS_MAX_PER_DAY": "3",
+    "THREADS_MAX_AFFILIATE_PER_DAY": "1",
+    "THREADS_MAX_AFFILIATE_RATIO": "0.30",
+    "THREADS_MIN_CHARS": "80",
+    "THREADS_REQUIRE_KOREAN": "true",
+    "THREADS_MIN_KOREAN_RATIO": "0.30"
+  },
+  "api_hold": {
+    "status": "suspended",
+    "reason": "App 1655751472297844 restricted under 7.e.i.2; awaiting Meta reinstatement",
+    "updated_at": "2026-09-21T06:37:23.588067+00:00"
+  },
+  "scheduler": {
+    "pid": 29156,
+    "registered": 11,
+    "started_at": "2026-09-21T15:42:38",
+    "last_beat": "2026-09-21T15:43:39"
+  },
+  "previous_csv_event_counts": {
+    "BLOCKED_BY_QUALITY_GATE": 28,
+    "NOT_PUBLISHED_NO_OPERATOR_APPROVAL": 14,
+    "META_API_REJECTED_APP_DEACTIVATED": 2
+  },
+  "retained_ledger_span": [
+    "2026-09-14T17:02:18",
+    "2026-09-21T14:30:07"
+  ],
+  "retained_threads_related_runs": [
+    {
+      "started_at_kst": "2026-09-14T21:00:20",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-15T12:30:08",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-16T00:20:44",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-16T12:30:08",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-16T21:00:13",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-17T12:30:07",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-18T01:25:23",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-18T12:30:14",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-18T21:00:13",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-19T14:01:43",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-19T21:00:13",
+      "module": "pipelines.backlink_to_sns",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 2,
+      "approval_blocks_in_retained_tail": 0,
+      "app_deactivation_mentions_in_retained_tail": 0
+    },
+    {
+      "started_at_kst": "2026-09-21T12:30:11",
+      "module": "pipelines.coupang_to_threads",
+      "pipeline_status": "failure",
+      "quality_blocks_in_retained_tail": 0,
+      "approval_blocks_in_retained_tail": 1,
+      "app_deactivation_mentions_in_retained_tail": 0
+    }
+  ],
+  "local_threads_queue_count": 473,
+  "latest_local_threads_queue_timestamp": "2026-08-17T19:01:12",
+  "source_sha256": {
+    "common/threads_access.py": "9e440b451d266174cf1840b9af4932b9e2d42458060295ed3e1fc3f35a90236a",
+    "common/threads_guard.py": "a021499abe52bd71aec84c2decdf2461c2707b0733711c77804b2e4eea234860",
+    "common/threads_approval.py": "64a733d5cce923b387a1682326c6189e2cb46cb50ef42d7021a16f44816228f9",
+    "common/threads_token.py": "92c7b2caf91a06833788f2216eb6c22f0f77fe077ecb1825051f606ad253cb3a",
+    "publishers/threads.py": "94a10abf2a2ab73e169c0c3fc51320358f0b4b8f80ef8c013c94921bdeb2dcc0",
+    "pipelines/tistory_bridge.py": "743128d036988683cd43a63b327fb42f87104d48c4f55e8838203dcdb323ed48",
+    "tools/fix_threads_urls.py": "8908cd7ed3e6ea47a14bc28fdcbacb86d25e4726f22b1f1536454eea329bc00d",
+    "tools/threads_oauth_poll.py": "a1dec7cc79ddb163d0be454cae00e16861f9bd482da157cc425d518805af56d4",
+    "tests/test_threads_safety.py": "ad01b30eeba215ff1e1c7afdac83b3195ceaac117d002c1820b6253a5d002530"
+  }
+}

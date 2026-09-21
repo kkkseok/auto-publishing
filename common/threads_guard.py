@@ -24,7 +24,7 @@
     THREADS_MIN_CHARS              실질 본문 최소 길이 (기본 80)
     THREADS_REQUIRE_KOREAN         한국어 이외 차단 (기본 true)
     THREADS_MIN_KOREAN_RATIO       한글 최소 비율 (기본 0.30)
-    THREADS_GUARD_ENABLED          게이트 전체 on/off (기본 true)
+    THREADS_GUARD_ENABLED          false이면 발행 중지 (게이트 우회 불가)
 
 CLI:
     python -m common.threads_guard          # 오늘 소진 현황
@@ -32,9 +32,12 @@ CLI:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import sqlite3
 import sys
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -70,7 +73,8 @@ def _int_env(name: str, default: int) -> int:
 
 def _float_env(name: str, default: float) -> float:
     try:
-        return float(str(os.getenv(name, "")).strip() or default)
+        value = float(str(os.getenv(name, "")).strip() or default)
+        return value if math.isfinite(value) else default
     except ValueError:
         return default
 
@@ -95,20 +99,41 @@ def _load() -> dict:
         return {}
     try:
         data = json.loads(_STATE_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        # 손상 시 빈 상태로 시작 — 카운터가 리셋되면 그날 상한이 느슨해질 뿐이고,
-        # 여기서 예외를 올리면 발행 경로 전체가 죽는다.
-        return {}
+        if not isinstance(data, dict):
+            raise ValueError("발행량 기록 형식 오류")
+        for day, rec in data.items():
+            datetime.strptime(day, "%Y-%m-%d")
+            if (not isinstance(rec, dict)
+                    or type(rec.get("total")) is not int
+                    or type(rec.get("affiliate")) is not int
+                    or not 0 <= rec["affiliate"] <= rec["total"]):
+                raise ValueError("발행량 기록 값 오류")
+        return data
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError("Threads 발행량 기록을 읽을 수 없어 발행 중지") from exc
 
 
 def _save(data: dict) -> None:
+    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(_STATE_PATH)
+
+
+@contextmanager
+def publication_lock():
+    """Serialize quota check, approval and publish across local processes.
+
+    SQLite releases the lock on process exit. A competing publisher fails closed.
+    """
+    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_STATE_PATH.with_suffix(".lock.sqlite3")), timeout=1)
     try:
-        _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _STATE_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                               encoding="utf-8")
-    except Exception as e:
-        log(f"[threads_guard] 상태 저장 실패 (무시): {e}", "warn")
+        conn.execute("BEGIN IMMEDIATE")
+        yield
+    finally:
+        conn.rollback()
+        conn.close()
 
 
 def _today() -> str:
@@ -117,11 +142,11 @@ def _today() -> str:
 
 def _window_totals(data: dict, days: int = _RATIO_WINDOW_DAYS) -> tuple[int, int]:
     """최근 days 일의 (총 게시물, 제휴 게시물) 합계."""
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = date.today() - timedelta(days=days - 1)
     total = affiliate = 0
     for day, rec in data.items():
         try:
-            if datetime.strptime(day, "%Y-%m-%d").date() < cutoff:
+            if not cutoff <= datetime.strptime(day, "%Y-%m-%d").date() <= date.today():
                 continue
         except ValueError:
             continue
@@ -139,12 +164,12 @@ def today_usage() -> dict:
         "date":            _today(),
         "total":           int(rec.get("total", 0) or 0),
         "affiliate":       int(rec.get("affiliate", 0) or 0),
-        "max_total":       _int_env("THREADS_MAX_PER_DAY", 3),
-        "max_affiliate":   _int_env("THREADS_MAX_AFFILIATE_PER_DAY", 1),
+        "max_total":       min(3, max(0, _int_env("THREADS_MAX_PER_DAY", 3))),
+        "max_affiliate":   min(1, max(0, _int_env("THREADS_MAX_AFFILIATE_PER_DAY", 1))),
         "window_total":    win_total,
         "window_affiliate": win_aff,
         "window_ratio":    (win_aff / win_total) if win_total else 0.0,
-        "max_ratio":       _float_env("THREADS_MAX_AFFILIATE_RATIO", 0.30),
+        "max_ratio":       min(0.30, max(0.0, _float_env("THREADS_MAX_AFFILIATE_RATIO", 0.30))),
     }
 
 
@@ -169,15 +194,17 @@ def check_quality(text: str) -> tuple[bool, str]:
     """
     body = _substantive_text(text)
 
-    min_chars = _int_env("THREADS_MIN_CHARS", 80)
+    min_chars = max(80, _int_env("THREADS_MIN_CHARS", 80))
     if len(body) < min_chars:
         return False, f"실질 본문 {len(body)}자 < 최소 {min_chars}자 (AI 생성 실패 폴백 의심)"
 
-    if _bool_env("THREADS_REQUIRE_KOREAN", True):
+    if not _bool_env("THREADS_REQUIRE_KOREAN", True):
+        return False, "한국어 품질 검사 비활성화 — 발행 중지"
+    if body:
         letters = [c for c in body if c.isalpha()]
         if letters:
             ratio = len(_HANGUL_RE.findall(body)) / len(letters)
-            min_ratio = _float_env("THREADS_MIN_KOREAN_RATIO", 0.30)
+            min_ratio = max(0.30, _float_env("THREADS_MIN_KOREAN_RATIO", 0.30))
             if ratio < min_ratio:
                 return False, (f"한글 비율 {ratio:.0%} < {min_ratio:.0%} — "
                                f"계정 주 언어(한국어)와 불일치")
@@ -191,29 +218,29 @@ def check_quality(text: str) -> tuple[bool, str]:
 
 def check_quota(is_affiliate: bool) -> tuple[bool, str]:
     """일일 상한·제휴 비중 검사. (통과여부, 사유) 반환."""
-    data = _load()
+    try:
+        data = _load()
+    except ValueError as exc:
+        return False, str(exc)
     rec = data.get(_today(), {})
     total = int(rec.get("total", 0) or 0)
     aff = int(rec.get("affiliate", 0) or 0)
 
-    max_total = _int_env("THREADS_MAX_PER_DAY", 3)
+    max_total = min(3, max(0, _int_env("THREADS_MAX_PER_DAY", 3)))
     if total >= max_total:
         return False, f"오늘 게시물 {total}건 — 일일 상한 {max_total}건 도달"
 
     if is_affiliate:
-        max_aff = _int_env("THREADS_MAX_AFFILIATE_PER_DAY", 1)
+        max_aff = min(1, max(0, _int_env("THREADS_MAX_AFFILIATE_PER_DAY", 1)))
         if aff >= max_aff:
             return False, f"오늘 제휴 게시물 {aff}건 — 일일 상한 {max_aff}건 도달"
 
         win_total, win_aff = _window_totals(data)
-        max_ratio = _float_env("THREADS_MAX_AFFILIATE_RATIO", 0.30)
-        # 표본이 적을 때(창 내 10건 미만)는 비중이 요동쳐 정상 발행까지 막는다.
-        # 일일 상한이 이미 걸려 있으므로 비중은 표본이 쌓인 뒤에만 적용한다.
-        if win_total >= 10:
-            projected = (win_aff + 1) / (win_total + 1)
-            if projected > max_ratio:
-                return False, (f"제휴 비중 {projected:.0%} > 상한 {max_ratio:.0%} "
-                               f"(최근 {_RATIO_WINDOW_DAYS}일 {win_aff}/{win_total})")
+        max_ratio = min(0.30, max(0.0, _float_env("THREADS_MAX_AFFILIATE_RATIO", 0.30)))
+        projected = (win_aff + 1) / (win_total + 1)
+        if projected > max_ratio:
+            return False, (f"제휴 비중 {projected:.0%} > 상한 {max_ratio:.0%} "
+                           f"(최근 {_RATIO_WINDOW_DAYS}일 {win_aff}/{win_total})")
 
     return True, ""
 
@@ -267,7 +294,7 @@ def precheck(text: str) -> tuple[bool, str, bool]:
     """
     affiliate = is_affiliate_text(text)
     if not enabled():
-        return True, "", affiliate
+        return False, "품질·발행량 검사 비활성화 — 발행 중지", affiliate
 
     ok, reason = check_quality(text)
     if not ok:

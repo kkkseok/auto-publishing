@@ -31,7 +31,7 @@
     않는다(fail-closed) — 승인 없이 게시되는 경로를 남기지 않기 위함이다.
 
 환경변수:
-    THREADS_APPROVAL_REQUIRED   승인 게이트 on/off (기본 true)
+    THREADS_APPROVAL_REQUIRED   false이면 발행 중지 (승인 우회 불가)
     THREADS_APPROVAL_TIMEOUT    승인 대기 초 (기본 600)
     TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
 """
@@ -196,6 +196,7 @@ def request(text: str, meta: str = "") -> Optional[str]:
     data = _prune(_load())
     data[aid] = {
         "tg_message_id": msg_id,
+        "tg_chat_id": os.getenv("TELEGRAM_CHAT_ID", "").strip(),
         "status":        "pending",
         "meta":          meta,
         "preview":       text[:200],
@@ -258,7 +259,8 @@ def _self_poll_once(offset: int) -> int:
             if not reply_to:
                 continue
             resolve_by_tg_message_id(reply_to.get("message_id"),
-                                     (msg.get("text") or "").strip())
+                                     (msg.get("text") or "").strip(),
+                                     chat_id=msg.get("chat", {}).get("id"))
     except Exception:
         pass
     return offset
@@ -278,7 +280,7 @@ def find_by_tg_message_id(msg_id: int) -> Optional[str]:
     return None
 
 
-def resolve_by_tg_message_id(msg_id: int, reply_text: str) -> bool:
+def resolve_by_tg_message_id(msg_id: int, reply_text: str, *, chat_id=None) -> bool:
     """답글 수신 → 승인/거부 확정. 처리했으면 True.
 
     브릿지의 텔레그램 long-poll 이 호출한다. 캡차 답변과 같은 채널을 쓰므로,
@@ -287,6 +289,10 @@ def resolve_by_tg_message_id(msg_id: int, reply_text: str) -> bool:
     """
     aid = find_by_tg_message_id(msg_id)
     if not aid:
+        return False
+    rec = _load().get(aid, {})
+    expected_chat = str(rec.get("tg_chat_id") or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
+    if not expected_chat or str(chat_id) != expected_chat:
         return False
     status = _decide(reply_text)
     _mark(aid, status, reply_text)
@@ -312,7 +318,7 @@ def _mark(approval_id: str, status: str, reply_text: str) -> None:
 def gate(text: str, meta: str = "") -> tuple[bool, str]:
     """발행 직전 승인 게이트. (통과여부, 사유) 반환."""
     if not required():
-        return True, ""
+        return False, "승인 기능 비활성화 — 승인 없이 발행할 수 없음"
     aid = request(text, meta)
     if not aid:
         # 승인 요청을 보내지 못하면 발행하지 않는다. 여기서 통과시키면

@@ -15,7 +15,11 @@ from pathlib import Path
 
 import anthropic
 
-MODEL = "claude-opus-5-5"
+# 조사는 검색 결과를 많이 읽어 입력 토큰이 크다(1회 ~10만) → Sonnet 5.5 로 비용을 낮추고,
+# 글 품질을 좌우하는 작성만 Opus 5.5 로 한다. 같은 주제의 A·C(또는 B·D) 글은
+# 조사 1회를 공유한다 (2026-10-15 비용 절감안, 사용자 승인).
+RESEARCH_MODEL = "claude-sonnet-5-5"
+WRITE_MODEL = "claude-opus-5-5"
 _ROOT = Path(__file__).resolve().parent.parent
 STYLE_GUIDE = (_ROOT / "prompts" / "style_guide_v1.md").read_text(encoding="utf-8")
 
@@ -40,6 +44,12 @@ _WRITE_SYSTEM = """너는 블로그 글 작성자다. 아래 문체·양식 가�
 제공된 사실 시트에 있는 숫자·날짜·조건만 쓴다. 사실 시트에 없는 수치는 만들지 않는다.
 개인 경험(써봤다, 방문했다)을 지어내지 않는다. 상위 블로그 문장을 흉내 내지 말고 새로 쓴다.
 
+가독성 규칙 (모바일에서 읽힌다):
+- paragraphs 의 각 항목은 1~2문장. 한 항목이 화면에서 4줄을 넘지 않게 짧게 끊는다.
+- 핵심 숫자·기한·조건은 **이렇게** 감싸 강조한다. 한 문단에 최대 2곳.
+- 섹션마다 독자가 놓치기 쉬운 점이 있으면 callout 에 넣는다 (tip=도움말, warning=주의). 없으면 kind 를 none.
+- 같은 내용을 문단과 표에 중복해 쓰지 않는다.
+
 === 문체·양식 가이드 ===
 """ + STYLE_GUIDE
 
@@ -56,7 +66,8 @@ _DRAFT_SCHEMA = {
         "summary_points": {"type": "array", "items": {"type": "string"}},
         "sections": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["heading", "paragraphs", "table_columns", "table_rows", "steps", "checklist"],
+            "required": ["heading", "paragraphs", "table_columns", "table_rows", "steps", "checklist",
+                         "callout_kind", "callout_text"],
             "properties": {
                 "heading": {"type": "string"},
                 "paragraphs": {"type": "array", "items": {"type": "string"}},
@@ -64,6 +75,8 @@ _DRAFT_SCHEMA = {
                 "table_rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
                 "steps": {"type": "array", "items": {"type": "string"}},
                 "checklist": {"type": "array", "items": {"type": "string"}},
+                "callout_kind": {"type": "string", "enum": ["tip", "warning", "none"]},
+                "callout_text": {"type": "string"},
             }}},
         "faq": {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["q", "a"],
@@ -100,10 +113,10 @@ def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
     client = client or _client()
     today = date.today().isoformat()
     with client.messages.stream(
-        model=MODEL, max_tokens=32000,
+        model=RESEARCH_MODEL, max_tokens=32000,
         system=_RESEARCH_SYSTEM,
         output_config={"effort": "medium"},
-        tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8,
+        tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5,
                 "user_location": {"type": "approximate", "country": "KR"}}],
         messages=[{"role": "user", "content": f"오늘은 {today}. 키워드: {keyword}\n사실 시트를 만들어 줘."}],
     ) as stream:
@@ -135,7 +148,7 @@ def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | No
               f"=== 사실 시트 ===\n{facts['facts']}\n\n"
               f"=== 검색으로 확인된 출처 URL ===\n" + "\n".join(facts["cited_urls"]))
     with client.messages.stream(
-        model=MODEL, max_tokens=32000,
+        model=WRITE_MODEL, max_tokens=32000,
         system=[{"type": "text", "text": _WRITE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
         output_config={"effort": "medium",
                        "format": {"type": "json_schema", "schema": _DRAFT_SCHEMA}},
@@ -153,42 +166,104 @@ def _e(s: str) -> str:
     return html.escape(s, quote=False)
 
 
-def render_html(draft: dict, images: dict[str, str] | None = None) -> str:
-    """초안 JSON → 블로그 본문 HTML (티스토리 발행·네이버 붙여넣기 공용).
+def _rich(s: str, color: str) -> str:
+    """**강조** → 굵은 색 글씨. 나머지는 이스케이프."""
+    parts = re.split(r"\*\*(.+?)\*\*", s)
+    return "".join(f'<b style="color:{color}">{_e(p)}</b>' if i % 2 else _e(p)
+                   for i, p in enumerate(parts))
 
-    images: {capture_url: <img src>} — 신청 단계 섹션 아래에 붙인다.
+
+# 블로그별 강조색 (브랜딩 문서와 같은 색)
+ACCENT = {"A": "#0f8f7a", "B": "#e8481a", "C": "#3a4fd6", "D": "#6a35e0"}
+_KEEP = "word-break:keep-all;overflow-wrap:break-word;"
+_CALLOUT = {"tip": ("💡 도움말", "#eef8f4", "#1f8f6a"), "warning": ("⚠️ 주의", "#fff5ec", "#d9730d")}
+
+
+def _section_head(i: int, text: str, color: str, tistory: bool) -> str:
+    if tistory:
+        return (f'<h2 id="s{i}" style="margin:36px 0 14px;font-size:22px;{_KEEP}">'
+                f'<span style="display:inline-block;background:{color};color:#fff;border-radius:6px;'
+                f'padding:0 8px;margin-right:8px;font-size:16px">{i:02d}</span>{_e(text)}</h2>')
+    return (f'<hr><p style="font-size:20px;{_KEEP}"><b><span style="color:{color}">{i:02d}</span> '
+            f'{_e(text)}</b></p>')
+
+
+def _table(cols: list[str], rows: list[list[str]], color: str) -> str:
+    head = "".join(f'<th style="background:{color};color:#fff;padding:9px 10px;border:1px solid {color};'
+                   f'{_KEEP}">{_e(c)}</th>' for c in cols)
+    body = "".join("<tr>" + "".join(f'<td style="padding:9px 10px;border:1px solid #ddd;{_KEEP}">'
+                                     f'{_rich(c, color)}</td>' for c in row) + "</tr>" for row in rows)
+    return (f'<table style="width:100%;border-collapse:collapse;margin:8px 0 18px;font-size:15px">'
+            f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
+
+
+def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "A") -> str:
+    """초안 JSON → 본문 HTML.
+
+    네이버(A·B)는 붙여넣기에서 살아남는 요소(굵게·색·표·구분선)만 쓰고, 티스토리(C·D)는
+    인라인 CSS 카드·콜아웃·목차까지 쓴다. 어느 쪽이든 한글이 단어 중간에서 줄바꿈되지 않게
+    keep-all 을 건다(첫 시험 미리보기에서 "2억"이 "2 / 억"으로 끊겼다).
+    images: {capture_url: <img src>} — 단계(steps)가 있는 첫 섹션 아래에 붙인다.
     """
-    images = images or {}
-    out = [f'<p style="color:#666;font-size:14px">{_e(draft["basis_line"])}</p>',
-           f"<p>{_e(draft['intro'])}</p>",
-           '<div style="border:2px solid #1f8f7a;border-radius:10px;padding:14px 18px;margin:16px 0">'
-           "<p><b>📌 3줄 요약</b></p><ul>" + "".join(f"<li>{_e(p)}</li>" for p in draft["summary_points"])
-           + "</ul></div>"]
-    pending_images = list(images.items())
-    for sec in draft["sections"]:
-        out.append(f"<h2>{_e(sec['heading'])}</h2>")
-        out += [f"<p>{_e(p)}</p>" for p in sec["paragraphs"]]
+    images = dict(images or {})
+    color = ACCENT.get(blog, "#333")
+    tistory = blog in ("C", "D")
+    p_style = f"margin:0 0 14px;line-height:1.85;font-size:16px;{_KEEP}"
+    out = [f'<div style="{_KEEP}">',
+           f'<p style="color:#777;font-size:13px;{_KEEP}">🗓 {_e(draft["basis_line"])}</p>',
+           f'<p style="{p_style}">{_rich(draft["intro"], color)}</p>']
+
+    summary = "".join(f'<li style="margin:6px 0;{_KEEP}">{_rich(p, color)}</li>' for p in draft["summary_points"])
+    if tistory:
+        out.append(f'<div style="background:#f6f7fb;border-left:5px solid {color};border-radius:10px;'
+                   f'padding:16px 20px;margin:20px 0"><p style="margin:0 0 6px;font-weight:700;color:{color}">'
+                   f'📌 핵심 3줄 요약</p><ul style="margin:0;padding-left:20px">{summary}</ul></div>')
+        toc = "".join(f'<li style="margin:4px 0"><a href="#s{i}" style="color:#333;text-decoration:none">'
+                      f'{_e(sec["heading"])}</a></li>' for i, sec in enumerate(draft["sections"], 1))
+        out.append(f'<div style="border:1px solid #e3e3e3;border-radius:10px;padding:14px 20px;margin:0 0 24px">'
+                   f'<p style="margin:0 0 6px;font-weight:700">목차</p>'
+                   f'<ol style="margin:0;padding-left:20px">{toc}</ol></div>')
+    else:
+        # 네이버: 한 칸짜리 표는 붙여넣기 뒤에도 테두리 박스로 남는다
+        out.append(f'<table style="width:100%;border-collapse:collapse;margin:16px 0"><tr>'
+                   f'<td style="background:#f3faf8;border:2px solid {color};padding:14px 18px">'
+                   f'<p><b style="color:{color}">📌 핵심 3줄 요약</b></p><ul>{summary}</ul></td></tr></table>')
+
+    for i, sec in enumerate(draft["sections"], 1):
+        out.append(_section_head(i, sec["heading"], color, tistory))
+        out += [f'<p style="{p_style}">{_rich(p, color)}</p>' for p in sec["paragraphs"]]
         if sec["table_columns"] and sec["table_rows"]:
-            head = "".join(f'<th style="border:1px solid #ccc;padding:6px 10px;background:#f5f5f5">{_e(c)}</th>'
-                           for c in sec["table_columns"])
-            body = "".join("<tr>" + "".join(f'<td style="border:1px solid #ccc;padding:6px 10px">{_e(c)}</td>'
-                                             for c in row) + "</tr>" for row in sec["table_rows"])
-            out.append(f'<table style="border-collapse:collapse;width:100%"><thead><tr>{head}</tr></thead>'
-                       f"<tbody>{body}</tbody></table>")
+            out.append(_table(sec["table_columns"], sec["table_rows"], color))
         if sec["steps"]:
-            out.append("<ol>" + "".join(f"<li>{_e(s)}</li>" for s in sec["steps"]) + "</ol>")
-            while pending_images:
-                url, src = pending_images.pop(0)
-                out.append(f'<p><img src="{html.escape(src)}" alt="공식 화면: {html.escape(url)}" '
-                           f'style="max-width:100%;border:1px solid #ddd"></p>')
+            items = "".join(f'<li style="margin:8px 0;{_KEEP}">{_rich(st, color)}</li>' for st in sec["steps"])
+            out.append(f'<ol style="padding-left:22px;line-height:1.8">{items}</ol>')
+            for url, src in list(images.items()):
+                out.append(f'<p style="text-align:center"><img src="{html.escape(src)}" alt="공식 화면 캡처" '
+                           f'style="max-width:100%;border:1px solid #ddd;border-radius:8px"></p>'
+                           f'<p style="text-align:center;color:#888;font-size:13px">출처: {_e(url)}</p>')
+                images.pop(url)
         if sec["checklist"]:
-            out.append("<ul>" + "".join(f"<li>✔ {_e(c)}</li>" for c in sec["checklist"]) + "</ul>")
+            items = "".join(f'<li style="margin:6px 0;list-style:none;{_KEEP}">✅ {_rich(c, color)}</li>'
+                            for c in sec["checklist"])
+            out.append(f'<ul style="padding-left:4px">{items}</ul>')
+        if sec.get("callout_kind") in _CALLOUT and sec.get("callout_text"):
+            label, bg, fg = _CALLOUT[sec["callout_kind"]]
+            if tistory:
+                out.append(f'<div style="background:{bg};border-radius:10px;padding:12px 16px;margin:10px 0 18px;'
+                           f'{_KEEP}"><b style="color:{fg}">{label}</b><br>{_rich(sec["callout_text"], fg)}</div>')
+            else:
+                out.append(f'<p style="{_KEEP}"><b style="color:{fg}">{label}</b> {_rich(sec["callout_text"], fg)}</p>')
+
     if draft["faq"]:
-        out.append("<h2>자주 묻는 질문</h2>")
+        out.append('<h2 style="margin:36px 0 14px;font-size:22px">자주 묻는 질문</h2>' if tistory
+                   else '<hr><p style="font-size:20px"><b>자주 묻는 질문</b></p>')
         for f in draft["faq"]:
-            out.append(f"<p><b>Q. {_e(f['q'])}</b><br>A. {_e(f['a'])}</p>")
-    out.append(f"<p>{_e(draft['closing'])}</p>")
+            out.append(f'<p style="{p_style}"><b style="color:{color}">Q. {_e(f["q"])}</b><br>'
+                       f'A. {_rich(f["a"], color)}</p>')
+    out.append(f'<p style="{p_style}">{_rich(draft["closing"], color)}</p>')
     if draft["sources"]:
-        out.append("<p><b>참고 출처</b></p><ul>" + "".join(
-            f'<li><a href="{html.escape(s["url"])}">{_e(s["title"])}</a></li>' for s in draft["sources"]) + "</ul>")
+        lis = "".join(f'<li><a href="{html.escape(s["url"])}">{_e(s["title"])}</a></li>' for s in draft["sources"])
+        out.append(f'<p style="color:#777;font-size:13px;margin-top:24px"><b>참고 출처</b></p>'
+                   f'<ul style="color:#777;font-size:13px">{lis}</ul>')
+    out.append("</div>")
     return "\n".join(out)

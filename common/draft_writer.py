@@ -195,12 +195,19 @@ def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
             "usage": resp.usage.to_dict(), "billing": "api"}
 
 
-def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | None = None) -> dict:
-    """사실 시트 → 블로그 양식 JSON 초안."""
+def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | None = None,
+          feedback: str = "", previous: dict | None = None) -> dict:
+    """사실 시트 → 블로그 양식 JSON 초안. feedback·previous 가 있으면 이전 초안을 그 지시대로 고친다."""
     prompt = (f"작성할 블로그: {BLOGS[blog]} (가이드의 해당 섹션 양식을 따른다)\n"
               f"핵심 키워드: {keyword}\n오늘: {date.today().isoformat()}\n\n"
               f"=== 사실 시트 ===\n{facts['facts']}\n\n"
               f"=== 검색으로 확인된 출처 URL ===\n" + "\n".join(facts["cited_urls"]))
+    if feedback and previous:
+        prev = {k: v for k, v in previous.items() if not k.startswith("_")}
+        prompt += ("\n\n=== 이전 초안 (JSON) ===\n" + json.dumps(prev, ensure_ascii=False) +
+                   f"\n\n=== 운영자 수정 요청 ===\n{feedback}\n"
+                   "이전 초안을 바탕으로 수정 요청을 반영해 전체 초안을 다시 써라. "
+                   "사실 시트 밖의 수치는 여전히 쓰지 않는다.")
     if _billing() == "subscription":
         data = _run_cli(prompt, _WRITE_SYSTEM, WRITE_MODEL, [], schema=_DRAFT_SCHEMA)
         draft = data.get("structured_output")
@@ -332,3 +339,16 @@ def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "
                    f'<ul style="color:#777;font-size:13px">{lis}</ul>')
     out.append("</div>")
     return "\n".join(out)
+
+
+_PAGE = ('<!doctype html><html lang="ko"><head><meta charset="utf-8">'
+         '<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>'
+         '<style>body{{max-width:760px;margin:24px auto;padding:0 16px;font-family:"Malgun Gothic",sans-serif;'
+         'background:#fff;color:#222;word-break:keep-all}} h1{{font-size:26px;line-height:1.4}}</style>'
+         '</head><body><h1>{title}</h1>{body}<p style="color:#888">{tags}</p></body></html>')
+
+
+def preview_page(draft: dict, blog: str, images: dict[str, str] | None = None) -> str:
+    """승인용 미리보기 HTML 문서 (제목 + 본문 + 태그)."""
+    return _PAGE.format(title=html.escape(draft["title"]), body=render_html(draft, images, blog),
+                        tags=" ".join("#" + html.escape(t) for t in draft["tags"]))

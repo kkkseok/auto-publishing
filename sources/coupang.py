@@ -399,16 +399,37 @@ def _fmt_price(price) -> str:
         return f"{price}원" if price else ""
 
 
-# 소스별 subId 접미사 — 전환 리포트(clicks/orders/commission)가 subId 기준
-# 집계이므로, 같은 채널이라도 소스별로 접미사를 붙여 goldbox/bestcategory/keyword
-# 전환을 분리 추적한다. AF코드(lptag)는 그대로라 수수료 귀속은 동일.
-_SRC_SUBID_TAG = {"search": "kw", "goldbox": "gb", "bestcategory": "bc"}
+# subId 규칙 (2026-10-15)
+# 쿠팡 리포트는 subId 단위로 집계된다. 예전엔 채널ID 뒤에 "-kw/-gb/-bc" 를 붙여
+# 소스별로 나누려 했지만, 같은 기간 `kkkseok4989` 글 126건은 클릭 42회, 
+# `kkkseok4989-kw` 글 101건은 리포트에 한 번도 안 잡혔다 — 하이픈 뒤가 잘려
+# 기본 ID 로 합쳐지는 것으로 보인다(단정 못 함, 클릭 테스트로 확인 중).
+# 그래서 subId 는 영숫자만 쓴다. 소스 구분은 subId 가 아니라 상품 dict 의
+# source_mode 로 하고, 글 단위 ROI 는 post_subid() 로 글마다 고유 subId 를 준다.
+_SUBID_SAFE = re.compile(r"[^A-Za-z0-9]")
+_BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def post_subid(channel_code: str, now: "datetime | None" = None) -> str:
+    """글 하나에 쓸 고유 subId — `<prefix><channel_code><base36 초>` (영숫자만).
+
+    channel_code 는 발행 채널 약어(예: nb=네이버블로그, ts=티스토리, wp=워드프레스,
+    th=Threads). pipelines/roi_aggregator.py 가 publish_queue 의 affiliate_url 에서
+    이 값을 읽어 리포트와 글을 1:1로 잇는다. 같은 초에 두 글을 만들 일은 없다.
+    """
+    prefix = _SUBID_SAFE.sub("", os.getenv("COUPANG_SUBID_PREFIX", "ap")) or "ap"
+    code = _SUBID_SAFE.sub("", channel_code).lower()[:4]
+    n = int((now or datetime.now(timezone.utc)).timestamp())
+    stamp = ""
+    while n:
+        n, r = divmod(n, 36)
+        stamp = _BASE36[r] + stamp
+    return f"{prefix}{code}{stamp or '0'}"
 
 
 def _tagged_subid(channel_id: str, source_mode: str) -> str:
-    """채널ID 에 소스 접미사(-kw/-gb/-bc)를 붙인 subId. 채널이 비면 그대로."""
-    tag = _SRC_SUBID_TAG.get(source_mode, "kw")
-    return f"{channel_id}-{tag}" if channel_id else channel_id
+    """채널ID 를 영숫자로 정리한 subId. source_mode 는 더 이상 subId 에 넣지 않는다."""
+    return _SUBID_SAFE.sub("", channel_id) if channel_id else channel_id
 
 
 def _build_api_product(item: dict, channel_id: str, theme: str = "",

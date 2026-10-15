@@ -44,7 +44,7 @@ _PATTERNS: list[tuple[re.Pattern, str, str]] = [
         re.compile(r"Invalid\s*signature|쿠팡\s*stats\s*조회\s*실패|"
                    r"SECRET_KEY\s*길이\s*이상|쿠팡\s*\w*\s*리포트\s*실패:\s*40[13]", re.I),
         "쿠팡 OpenAPI 서명 거부 (키 재발급/재복사 필요)",
-        ".env COUPANG_ACCESS_KEY/SECRET_KEY 교체 후 python -m tools.coupang_source_roi 로 확인",
+        ".env COUPANG_ACCESS_KEY/SECRET_KEY 교체 후 python -m common.coupang_stats 로 확인",
     ),
     (
         # 발행 게이트가 의도대로 막은 경우 — 장애가 아니다. 발행 0건이라 ledger 는

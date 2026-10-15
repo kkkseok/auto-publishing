@@ -160,12 +160,12 @@ def _check(resp) -> None:
         raise DraftError("max_tokens 에 걸려 응답이 잘림")
 
 
-def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
-    """키워드 사실 시트(텍스트)와 검색으로 확인된 출처 URL 목록."""
+def research(keyword: str, client: anthropic.Anthropic | None = None, system: str = _RESEARCH_SYSTEM) -> dict:
+    """키워드 사실 시트(텍스트)와 검색으로 확인된 출처 URL 목록. 가격형은 system 을 바꿔 부른다."""
     today = date.today().isoformat()
     ask = f"오늘은 {today}. 키워드: {keyword}\n웹 검색은 5회 이내로 하고, 사실 시트를 만들어 줘."
     if _billing() == "subscription":
-        data = _run_cli(ask, _RESEARCH_SYSTEM, RESEARCH_MODEL, ["WebSearch", "WebFetch"])
+        data = _run_cli(ask, system, RESEARCH_MODEL, ["WebSearch", "WebFetch"])
         facts_text = data.get("result") or ""
         return {"keyword": keyword, "facts": facts_text, "cited_urls": _urls_from(facts_text),
                 "usage": data.get("usage") or {}, "billing": "subscription",
@@ -173,7 +173,7 @@ def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
     client = client or _client()
     with client.messages.stream(
         model=RESEARCH_MODEL, max_tokens=32000,
-        system=_RESEARCH_SYSTEM,
+        system=system,
         output_config={"effort": "medium"},
         tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5,
                 "user_location": {"type": "approximate", "country": "KR"}}],
@@ -269,13 +269,38 @@ def _table(cols: list[str], rows: list[list[str]], color: str) -> str:
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
 
 
-def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "A") -> str:
+def _products_block(products: list[dict], color: str, tistory: bool) -> str:
+    """쿠팡 상품 비교표 — 가격·링크는 모델이 아니라 수집 데이터로 코드가 만든다."""
+    when = products[0].get("fetched_at", "")
+    rows = "".join(
+        "<tr>"
+        f'<td style="padding:9px 10px;border:1px solid #ddd;text-align:center">{i}</td>'
+        f'<td style="padding:9px 10px;border:1px solid #ddd;{_KEEP}">{_e(p["name"])}'
+        f'{" 🚀" if p.get("is_rocket") else ""}</td>'
+        f'<td style="padding:9px 10px;border:1px solid #ddd;white-space:nowrap"><b>{_e(p["price"])}</b></td>'
+        f'<td style="padding:9px 10px;border:1px solid #ddd;text-align:center">'
+        f'<a href="{html.escape(p["affiliate_url"])}" style="color:{color};font-weight:700">보러가기</a></td>'
+        "</tr>" for i, p in enumerate(products, 1))
+    head = "".join(f'<th style="background:{color};color:#fff;padding:9px 10px;border:1px solid {color}">{c}</th>'
+                   for c in ("순위", "상품", "현재가", "링크"))
+    title = f"💰 쿠팡 인기 상품 가격 ({_e(when)} 기준)"
+    heading = (f'<h2 style="margin:36px 0 14px;font-size:22px;{_KEEP}">{title}</h2>' if tistory
+               else f'<hr><p style="font-size:20px;{_KEEP}"><b>{title}</b></p>')
+    return (heading + f'<table style="width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15px">'
+            f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+            f'<p style="color:#888;font-size:13px;{_KEEP}">순위는 쿠팡 검색 결과 순서이며, 가격은 수시로 바뀝니다. '
+            f"구매 전 현재가를 확인하세요. 🚀=로켓배송</p>")
+
+
+def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "A",
+                products: list[dict] | None = None) -> str:
     """초안 JSON → 본문 HTML.
 
     네이버(A·B)는 붙여넣기에서 살아남는 요소(굵게·색·표·구분선)만 쓰고, 티스토리(C·D)는
     인라인 CSS 카드·콜아웃·목차까지 쓴다. 어느 쪽이든 한글이 단어 중간에서 줄바꿈되지 않게
     keep-all 을 건다(첫 시험 미리보기에서 "2억"이 "2 / 억"으로 끊겼다).
     images: {capture_url: <img src>} — 단계(steps)가 있는 첫 섹션 아래에 붙인다.
+    products: 가격형(B·D) 상품 비교표 — 본문 섹션 뒤, FAQ 앞에 넣는다.
     """
     images = dict(images or {})
     color = ACCENT.get(blog, "#333")
@@ -326,6 +351,8 @@ def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "
             else:
                 out.append(f'<p style="{_KEEP}"><b style="color:{fg}">{label}</b> {_rich(sec["callout_text"], fg)}</p>')
 
+    if products:
+        out.append(_products_block(products, color, tistory))
     if draft["faq"]:
         out.append('<h2 style="margin:36px 0 14px;font-size:22px">자주 묻는 질문</h2>' if tistory
                    else '<hr><p style="font-size:20px"><b>자주 묻는 질문</b></p>')
@@ -348,7 +375,8 @@ _PAGE = ('<!doctype html><html lang="ko"><head><meta charset="utf-8">'
          '</head><body><h1>{title}</h1>{body}<p style="color:#888">{tags}</p></body></html>')
 
 
-def preview_page(draft: dict, blog: str, images: dict[str, str] | None = None) -> str:
-    """승인용 미리보기 HTML 문서 (제목 + 본문 + 태그)."""
-    return _PAGE.format(title=html.escape(draft["title"]), body=render_html(draft, images, blog),
+def preview_page(draft: dict, blog: str, images: dict[str, str] | None = None,
+                 products: list[dict] | None = None) -> str:
+    """미리보기 HTML 문서 (제목 + 본문 + 태그) — 발행 전 확인·기록용."""
+    return _PAGE.format(title=html.escape(draft["title"]), body=render_html(draft, images, blog, products),
                         tags=" ".join("#" + html.escape(t) for t in draft["tags"]))

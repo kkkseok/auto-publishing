@@ -3,7 +3,7 @@ from pipelines.blog_job import check_draft
 
 
 def _draft(**kw):
-    d = {"title": "2026 에너지바우처 신청", "intro": "가" * 400, "sources": [{"url": "https://www.bokjiro.go.kr"}],
+    d = {"title": "2026 에너지바우처 신청", "intro": "가" * 400, "sources": [{"title": "복지로", "url": "https://www.bokjiro.go.kr"}],
          "sections": [{"heading": f"h{i}", "paragraphs": ["나" * 400]} for i in range(4)]}
     d.update(kw)
     return d
@@ -26,3 +26,16 @@ def test_info_category_from_keyword():
     assert info_category("연말정산 환급금 조회") == "세금·환급"
     assert info_category("국민내일배움카드 신청") == "취업·청년"
     assert info_category("고양이 사료") == ""
+
+
+def test_price_post_puts_notice_first_and_links_products():
+    from common import affiliate_notice
+    from common.draft_writer import render_html
+    draft = _draft(basis_line="2026.10.16 기준", summary_points=["a"], faq=[], closing="끝", tags=[],
+                   sections=[{"heading": "h", "paragraphs": ["p"], "table_columns": [], "table_rows": [],
+                              "steps": [], "checklist": [], "callout_kind": "none", "callout_text": ""}])
+    prods = [{"name": "에어프라이어 5L", "price": "59,000원", "is_rocket": True, "fetched_at": "2026.10.16 07:00",
+              "affiliate_url": "https://link.coupang.com/re/AFFSDP?lptag=X&subid=apts1"}]
+    body = affiliate_notice.prepend_html(render_html(draft, {}, "D", prods), affiliate_notice.COUPANG)
+    assert body.startswith("<!--affiliate-notice-->")
+    assert "subid=apts1" in body and "59,000원" in body and "2026.10.16 07:00 기준" in body

@@ -92,11 +92,12 @@ def notice_html(*sources: str) -> str:
     """본문 최상단 배너 HTML.
 
     본문(14px 회색) 대비 16px·볼드·빨강 + 테두리 박스로 '본문과 구별' 요건을
-    시각적으로 만족시킨다.
+    시각적으로 만족시킨다. 굵게는 <b> 로도 감싼다 — 네이버 SmartEditor 붙여넣기는
+    인라인 font-weight 를 버리고 <b> 만 남긴다 (2026-10-16 확인).
     """
     lines = "".join(
         f'<p style="margin:0 0 6px;font-size:16px;font-weight:700;'
-        f'line-height:1.6;color:{_ACCENT};">[{LABEL}] {s}</p>'
+        f'line-height:1.6;color:{_ACCENT};"><b>[{LABEL}] {s}</b></p>'
         for s in notice_sentences(*sources)
     )
     return (

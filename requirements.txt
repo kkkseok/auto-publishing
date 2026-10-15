@@ -1,51 +1,38 @@
-# 핵심 HTTP/크롤링
-requests>=2.31.0
-# requests 2.32.x 의 호환성 체크는 urllib3<2.3, chardet<6 만 허용한다.
-# 핀하지 않으면 매 실행마다 RequestsDependencyWarning 노이즈가 출력된다.
-urllib3>=2.0,<2.3
-chardet>=5.0,<6.0
-requests-toolbelt>=1.0.0
-beautifulsoup4>=4.12.0
-lxml>=5.0.0
-feedparser>=6.0.0
+# 런타임 의존성 — 스케줄러가 실제로 쓰는 버전에 고정한다 (2026-10-15, Python 3.13.12).
+# 개발·대시보드용은 requirements-dev.txt.
+# 버전을 올릴 때는 .venv 에서 pytest 와 `python -m pipelines.<module>` 실행으로 확인 후 고친다.
 
-# 브라우저 자동화
-selenium>=4.18.0
-playwright>=1.42.0
-browser-cookie3>=0.20.0
+# HTTP / 파싱
+requests==2.32.5
+# requests 2.32.x 의 호환성 체크는 urllib3<2.3, chardet<6 만 허용한다.
+# 벗어나면 매 실행마다 RequestsDependencyWarning 노이즈가 출력된다.
+urllib3==2.2.3
+chardet==5.2.0
+requests-toolbelt==1.0.0      # publishers/naver_cafe.py multipart
+beautifulsoup4==4.14.3
+feedparser==6.0.12            # sources/korea_policy.py
+
+# 브라우저 자동화 (브라우저 바이너리는 `python -m playwright install chromium`)
+playwright==1.58.0
+browser-cookie3==0.20.1       # publishers/twitter.py
 
 # AI
-google-generativeai>=0.5.0
+anthropic==0.84.0
+google-generativeai==0.8.6    # 폐기 예정 SDK — google-genai 로 이전 예정
 
-# 환경변수
-python-dotenv>=1.0.0
-
-# 스케줄러
-schedule>=1.2.0
+# 설정 / 스케줄
+python-dotenv==1.2.2
+schedule==1.2.2
 
 # 네이버 RSA 로그인
-rsa>=4.9
+rsa==4.9.1
+cryptography==46.0.5          # tools/threads_oauth_poll.py
 
-# WordPress XML-RPC (선택)
-python-wordpress-xmlrpc>=2.3
+# 발행 렌더링
+python-wordpress-xmlrpc==2.3
+markdown==3.10.2
+Pillow==12.1.1                # common/card_image.py
 
-# 진행 표시
-tqdm>=4.66.0
-
-# 엑셀/CSV (선택)
-openpyxl>=3.1.0
-
-# Markdown → HTML 변환 (파이프라인 본문 렌더링)
-markdown>=3.5
-
-# 카드 이미지 생성 (인스타그램 인포그래픽)
-Pillow>=10.0.0
-
-# 운영 대시보드 (tools/dashboard.py — 선택)
-streamlit>=1.30.0
-pandas>=2.0.0
-streamlit-autorefresh>=1.0.0
-
-# Google Indexing API (common/indexing_google.py)
-oauth2client>=4.1.3
-httplib2>=0.22.0
+# Google Indexing API — oauth2client 는 폐기된 라이브러리, google-auth 로 이전 예정
+oauth2client==4.1.3
+httplib2==0.31.2

@@ -34,8 +34,16 @@ if (-not $isAdmin) {
 }
 
 # 작업 스케줄러는 사용자 셸의 PATH 를 그대로 못 받는다. python.exe 풀 경로를
-# 명시적으로 찾아 등록. Get-Command 가 첫 매칭(보통 사용자 셸의 python)을 반환.
-$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+# 명시적으로 찾아 등록한다. 프로젝트 .venv 가 있으면 그것을 쓴다 — 전역 Python
+# 에 깔린 패키지 버전은 requirements.txt 와 어긋날 수 있다. 없을 때만 PATH 의
+# 첫 매칭(보통 사용자 셸의 python)으로 폴백.
+$venvPython = Join-Path $projectDir ".venv\Scripts\python.exe"
+if (Test-Path $venvPython) {
+    $pyCmd = Get-Command $venvPython
+} else {
+    Write-Warning ".venv 없음 — 전역 python 으로 등록합니다. 'python -m venv .venv' 후 requirements.txt 설치를 권장."
+    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+}
 if (-not $pyCmd) {
     Write-Error "python.exe 를 PATH 에서 찾지 못했습니다. 'python --version' 이 동작하는지 먼저 확인하세요."
     exit 1

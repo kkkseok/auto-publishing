@@ -1,8 +1,9 @@
 """매일 블로그 글을 만들어 바로 발행한다 (승인 없음 — 품질 기준은 blog_job.check_draft).
 
 생활정보: 검색광고 API 로 고른 키워드 1개 → 조사 1회 → BLOG_DAILY_BLOGS 의 블로그마다
-작성 → Aside 로 발행. 기본은 A(네이버)만 — 티스토리(C)는 발행마다 DKAPTCHA 를 사람이
-풀어야 해서 완전 자동이 아니다. 'A,C' 로 넣으면 C 도 발행하고 캡차를 텔레그램으로 묻는다.
+작성. 네이버(A)는 바로 Aside 로 발행하고, 티스토리(C)는 발행마다 DKAPTCHA 를 사람이
+답해야 해서 대기(ready)로 두고 pipelines.tistory_publish 가 SCHEDULE_TISTORY_PUBLISH 에
+발행한다 — 사용자가 깨어 있는 시간에 캡차가 오도록.
 가격형 쌍(B·D)은 가격 이력이 30일 쌓이고 가격 기반 작성기가 붙은 뒤 추가한다.
 
 이미 쓴 키워드는 data/blog_keywords_used.json 에 남겨 다시 고르지 않는다.
@@ -21,7 +22,7 @@ load_dotenv()
 
 from common import blog_drafts
 from common.draft_writer import preview_page, research, write
-from pipelines.blog_job import publish
+from pipelines.blog_job import NAVER, publish
 from common.keyword_planner import plan
 from common.logger import log
 
@@ -67,7 +68,11 @@ def make_and_publish(keyword: str, blogs: list[str]) -> int:
         draft = write(keyword, blog, facts)
         (out / f"{blog}_draft.json").write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
         (out / f"{blog}_preview.html").write_text(preview_page(draft, blog), encoding="utf-8")
-        if publish(blog_drafts.register(blog, keyword, draft, out)):
+        if blog not in NAVER:
+            blog_drafts.register(blog, keyword, draft, out, status="ready")
+            log(f"[블로그] [{blog}] 발행 대기 등록 — {draft['title']}", "ok")
+            published += 1
+        elif publish(blog_drafts.register(blog, keyword, draft, out)):
             published += 1
     return published
 
@@ -88,9 +93,9 @@ def run(keyword: str = "") -> None:
     _mark_used(keyword, "info")
     took = (datetime.now() - started).seconds
     if done < len(blogs):
-        log(f"[블로그] 발행 {done}/{len(blogs)}건 — 실패 사유는 data/blog_drafts.json ({took}s)", "error")
+        log(f"[블로그] 발행·대기등록 {done}/{len(blogs)}건 — 실패 사유는 data/blog_drafts.json ({took}s)", "error")
     else:
-        log(f"[블로그] 발행 완료 {done}건 ({took}s)", "ok")
+        log(f"[블로그] 발행 완료 (대기 등록 포함) {done}건 ({took}s)", "ok")
 
 
 if __name__ == "__main__":

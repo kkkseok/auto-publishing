@@ -2,9 +2,10 @@
 
     python -m pipelines.blog_job publish <draft_id> [--private]
 
-모든 발행은 Aside 브라우저로 한다:
-  A·B 네이버   → publishers/naver_aside
-  C·D 티스토리 → publishers/tistory_aside (DKAPTCHA 는 텔레그램으로 사람에게 묻는다)
+발행 경로:
+  A·B 네이버   → publishers/naver_aside (Aside 브라우저, 캡차 없음 — 끝까지 무인)
+  C·D 티스토리 → publishers/tistory_bridge (크롬 확장 브릿지 대기열. DKAPTCHA 는 텔레그램으로
+                 사람에게 묻고, 발행 완료 기록·알림은 브릿지 /done 이 한다)
 
 사람이 보지 않으므로 check_draft() 의 품질 기준을 통과하지 못한 초안은 발행하지 않는다.
 이미지는 아직 올리지 않는다 — 본문만 발행.
@@ -87,18 +88,22 @@ def publish(draft_id: str, private: bool = False) -> bool:
         category = (info_category(item["keyword"]) if blog == "A" else "") or os.getenv(cat_env, "")
         r = naver_publish(os.getenv(id_env, ""), draft["title"], body, draft["tags"],
                           category=category, private=private, profile=profile)
-        platform = "naver"
     else:
         from common.tistory_blogs import resolve_blog_name
-        from publishers.tistory_aside import publish as tistory_publish
-        r = tistory_publish(resolve_blog_name(TISTORY_ROLE[blog]), draft["title"], body, draft["tags"],
-                            item_id=draft_id, private=private)
-        platform = "tistory"
+        from publishers.tistory_bridge import TistoryBridgePublisher
+        pub = TistoryBridgePublisher(resolve_blog_name(TISTORY_ROLE[blog]))
+        res = pub.post(draft["title"], body, tags=draft["tags"], category="", visibility=0 if private else 20)
+        if not res.success:
+            return _fail(draft_id, draft["title"], f"티스토리 대기열 등록 실패: {res.message}")
+        # 실제 발행·URL 기록·완료 알림은 확장이 끝낸 뒤 브릿지 /done 이 한다
+        blog_drafts.update(draft_id, status="queued_tistory", private=private)
+        log(f"[블로그발행] 티스토리 대기열 등록 {draft_id} — 확장이 발행", "ok")
+        return True
     if not r.success:
         return _fail(draft_id, draft["title"], r.message)
     blog_drafts.update(draft_id, status="published", url=r.url, private=private)
     if not private:
-        add_url(r.url, platform=platform, title=draft["title"], keyword=item["keyword"], source="blog_draft")
+        add_url(r.url, platform="naver", title=draft["title"], keyword=item["keyword"], source="blog_draft")
     blog_drafts.notify(f"✅ [{blog}] {'비공개 ' if private else ''}발행 완료\n{draft['title']}\n{r.url}")
     log(f"[블로그발행] 발행 완료 {r.url}", "ok")
     return True

@@ -1,8 +1,9 @@
 """블로그 초안 기록 — data/blog_drafts.json.
 
-초안은 승인 없이 바로 발행한다 (2026-10-16 사용자 결정). 사람이 보지 않으므로 발행 전
-품질 기준(pipelines.blog_job.check_draft)을 통과한 초안만 내보내고, 결과(발행 주소·실패
-사유)는 여기에 남기고 텔레그램으로 알린다.
+초안은 승인 없이 바로 발행한다 (2026-10-16 사용자 결정). 네이버는 만들자마자 발행하고,
+티스토리는 캡차를 사람이 답해야 해서 status=ready 로 두었다가 pipelines.tistory_publish
+일정에 발행한다. 사람이 보지 않으므로 발행 전 품질 기준(pipelines.blog_job.check_draft)을
+통과한 초안만 내보내고, 결과(발행 주소·실패 사유)는 여기에 남기고 텔레그램으로 알린다.
 """
 from __future__ import annotations
 
@@ -37,15 +38,22 @@ def _save(data: dict) -> None:
     os.replace(tmp, PATH)
 
 
-def register(blog: str, keyword: str, draft: dict, draft_dir: Path) -> str:
+def register(blog: str, keyword: str, draft: dict, draft_dir: Path, status: str = "drafted") -> str:
     draft_id = uuid.uuid4().hex[:10]
     with _LOCK:
         data = _load()
         data[draft_id] = {"blog": blog, "keyword": keyword, "title": draft["title"],
-                          "dir": str(draft_dir), "status": "drafted",
+                          "dir": str(draft_dir), "status": status,
                           "created": datetime.now().isoformat(timespec="seconds")}
         _save(data)
     return draft_id
+
+
+def ready(blogs: tuple[str, ...]) -> list[str]:
+    """발행 대기(status=ready) 초안 id — 오래된 것부터."""
+    data = _load()
+    ids = [k for k, v in data.items() if v.get("status") == "ready" and v.get("blog") in blogs]
+    return sorted(ids, key=lambda k: data[k].get("created", ""))
 
 
 def get(draft_id: str) -> dict | None:

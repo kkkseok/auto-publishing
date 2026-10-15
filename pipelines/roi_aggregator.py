@@ -1,37 +1,47 @@
 """
-일일 ROI 집계 — publish_queue × 쿠팡 파트너스 stats 매칭
+일일 ROI 집계 — 쿠팡 파트너스 리포트를 subId 기준으로 정확히 귀속한다.
 
-흐름:
-  1. 어제 publish_queue 항목 중 source="coupang" + keyword 가 있는 것만 추출
-  2. 쿠팡 파트너스 sub-id-channel report 조회 (어제 1일치)
-  3. publish_queue 의 platform 별 subId 정책으로 매칭
-     - subId 가 platform 에 매핑되어 있으면 platform 별 합산
-     - 키워드별 합산은 publish_queue 의 keyword 필드로 수행
-  4. data/keyword_roi.json 에 누적 — {keyword: {clicks, orders, commission, last}}
-  5. keyword_pool.json 의 각 항목에 roi 메타 병합 (옵션, ROI_PROPAGATE_POOL=true 일 때)
+이전 버전은 어제 수익 총합을 어제 발행 글 수로 나눠 키워드마다 똑같이
+얹었다. 어느 글이 벌었는지 알 수 없는 값이라 측정으로서 의미가 없었다
+(2026-10-15 코드 점검). 이 버전은 추측 분배를 하지 않는다.
 
-스케줄: SCHEDULE_ROI_AGGREGATE — 매일 아침/저녁 1회 권장
+귀속 규칙:
+  1. 쿠팡 리포트는 subId 단위다. 발행 글의 subId 는 publish_queue 의
+     affiliate_url 의 `subid` 파라미터에서 읽는다.
+  2. subId 하나가 발행 글 하나에만 쓰였으면 → 그 글(url·keyword)에 귀속.
+  3. 여러 글이 같은 subId 를 공유하면 → 채널(subId) 단위로만 기록하고 글/키워드
+     에는 분배하지 않는다. 글 단위 ROI 를 원하면 파이프라인이 글마다 고유
+     subId 를 써야 한다.
 
-⚠️ 운영 초기에는 응답 스키마(쿠팡 reports API 의 정확한 키 이름)가 계정마다
-다를 수 있어, 이 스크립트는 발견되는 키 후보를 모두 시도하고 매칭이
-실패하면 raw 응답을 로그에 출력해 사용자가 매핑을 확정할 수 있게 한다.
+쿠팡 주문은 확정까지 늦게 반영되므로 매 실행마다 최근 ROI_LOOKBACK_DAYS(기본 7)일을
+다시 조회해 그 날짜들을 덮어쓴다. 누적값은 일별 값에서 매번 다시 계산한다.
+
+출력:
+  data/coupang_roi.json — {"daily": {날짜: {subId: 통계+귀속}}, "by_sub", "by_post", "updated_at"}
+  data/keyword_roi.json — {keyword: {clicks, orders, commission, publishes, first_seen, last}}
+                          (2번 규칙으로 정확히 귀속된 글만. daily_summary·키워드 선택·대시보드가 읽음)
+
+스케줄: SCHEDULE_ROI_AGGREGATE
 """
 import json
 import os
-from datetime import date, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from common.coupang_stats import fetch_daily_stats
-from common.aliexpress_stats import fetch_yesterday_orders as fetch_ali_orders
 from common.logger import log
 from common.publish_queue import _load as _load_queue, DEFAULT_QUEUE_PATH
 
 
-_BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROI_PATH      = os.path.join(_BASE_DIR, "data", "keyword_roi.json")
-KEYWORD_POOL  = os.path.join(_BASE_DIR, "data", "keyword_pool.json")
+_BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+COUPANG_ROI  = os.path.join(_BASE_DIR, "data", "coupang_roi.json")
+KEYWORD_ROI  = os.path.join(_BASE_DIR, "data", "keyword_roi.json")
+_KEEP_DAYS   = 400
+_METRICS     = ("clicks", "orders", "commission", "gmv")
 
 
 SCHEDULE = {
@@ -58,204 +68,132 @@ def _save_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def _extract_int(row: dict, candidates: tuple) -> int:
-    """row 의 후보 키 중 첫 번째로 발견되는 값을 int 로."""
-    for k in candidates:
-        v = row.get(k)
-        if v is not None:
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                continue
-    return 0
-
-
-def _extract_str(row: dict, candidates: tuple) -> str:
-    for k in candidates:
-        v = row.get(k)
-        if v:
-            return str(v)
+def _subid_of(affiliate_url: str) -> str:
+    """affiliate_url 의 subid 파라미터 (쿠팡 링크는 `subid`, API 딥링크는 `subId`)."""
+    if not affiliate_url:
+        return ""
+    qs = parse_qs(urlparse(affiliate_url).query)
+    for key in ("subid", "subId"):
+        if qs.get(key):
+            return qs[key][0]
     return ""
 
 
-def _row_to_normalized(row: dict) -> dict:
-    """쿠팡 reports row → 정규화 dict.
-
-    실제 쿠팡 응답 스키마는 운영 계정마다 미세 차이가 있어 키 후보를 다수
-    시도. 매칭 0인 row 는 호출 측에서 raw 로그로 보고.
-    """
-    return {
-        "sub_id":     _extract_str(row, ("subId", "sub_id", "subid")),
-        "date":       _extract_str(row, ("date", "statDate", "reportDate")),
-        "clicks":     _extract_int(row, ("click", "clicks", "clickCount")),
-        "orders":     _extract_int(row, ("order", "orders", "orderCount")),
-        "commission": _extract_int(row, ("commission", "totalCommission",
-                                          "commissionAmount")),
-    }
-
-
-def _aggregate_aliexpress(yest_iso: str, queue: list, roi_db: dict) -> int:
-    """알리 TOP API 의 어제 주문 → 키워드별 ROI 누적. 처리한 주문 수 반환.
-
-    publish_queue 의 source=aliexpress 발행 키워드들과 어제 주문을 매칭.
-    1차 — 어제 주문 총합을 어제 발행 키워드 수로 균등 분배 (쿠팡과 동일).
-    추후 product_id 단위 정밀 매칭은 publish_queue 의 affiliate_url 패턴 확정 후.
-    """
-    ali_pubs = [
-        it for it in queue
-        if (it.get("source") or "") == "aliexpress"
-        and (it.get("keyword") or "").strip()
-        and (it.get("queued_at") or "").startswith(yest_iso)
-    ]
-    if not ali_pubs:
-        return 0
-
-    orders = fetch_ali_orders()
-    if not orders:
-        log("[ROI] 알리 주문 응답 없음 — TOP 자격 또는 어제 주문 0", "info")
-        return 0
-
-    total_orders = len(orders)
-    total_paid = 0.0
-    total_comm = 0.0
-    for od in orders:
-        try:
-            total_paid += float(od.get("paid_amount", {}).get("amount") or
-                                  od.get("paid_amount") or 0)
-            total_comm += float(od.get("estimated_commission", {}).get("amount") or
-                                  od.get("estimated_commission") or
-                                  od.get("commission") or 0)
-        except (TypeError, ValueError):
+def _index_posts_by_subid(queue: list) -> dict[str, list[dict]]:
+    """subId → 그 subId 를 쓴 쿠팡 발행 글 목록."""
+    idx: dict[str, list[dict]] = defaultdict(list)
+    for it in queue:
+        sid = _subid_of(it.get("affiliate_url") or "")
+        if not sid or "coupang.com" not in (it.get("affiliate_url") or ""):
             continue
-
-    n = len(ali_pubs)
-    per_orders = total_orders // max(n, 1)
-    per_comm   = int(total_comm) // max(n, 1)
-
-    for it in ali_pubs:
-        kw = it["keyword"]
-        agg = roi_db.setdefault(kw, {
-            "clicks": 0, "orders": 0, "commission": 0,
-            "publishes": 0, "first_seen": yest_iso,
+        idx[sid].append({
+            "url":       it.get("url") or "",
+            "platform":  it.get("platform") or "",
+            "keyword":   (it.get("keyword") or "").strip(),
+            "queued_at": it.get("queued_at") or "",
         })
-        agg["orders"]     += per_orders
-        agg["commission"] += per_comm
-        agg["publishes"]  += 1
-        agg["last"]        = yest_iso
+    return idx
 
-    log(f"[ROI] 알리 어제 주문 {total_orders}건 / 커미션 {int(total_comm)} → "
-        f"{n}개 키워드 분배", "ok")
-    return total_orders
+
+def _attribute(row: dict, posts: list[dict]) -> dict:
+    """리포트 행 하나에 귀속 정보를 붙인다. 글이 하나일 때만 글에 귀속."""
+    out: dict = {m: int(row.get(m) or 0) for m in _METRICS}
+    out["platforms"] = sorted({p["platform"] for p in posts if p["platform"]})
+    out["post_count"] = len(posts)
+    if len(posts) == 1:
+        out["post_url"] = posts[0]["url"]
+        out["keyword"] = posts[0]["keyword"]
+    return out
+
+
+def _rebuild_totals(daily: dict) -> tuple[dict, dict, dict]:
+    """일별 값에서 subId·글·키워드 누적을 다시 계산한다."""
+    by_sub: dict = {}
+    by_post: dict = {}
+    by_kw: dict = {}
+    for day in sorted(daily):
+        for sid, d in daily[day].items():
+            s = by_sub.setdefault(sid, {m: 0 for m in _METRICS} | {"platforms": []})
+            for m in _METRICS:
+                s[m] += d.get(m, 0)
+            s["platforms"] = sorted(set(s["platforms"]) | set(d.get("platforms", [])))
+            url = d.get("post_url")
+            if not url:
+                continue
+            p = by_post.setdefault(url, {m: 0 for m in _METRICS} | {"keyword": d.get("keyword", ""), "sub_id": sid})
+            for m in _METRICS:
+                p[m] += d.get(m, 0)
+            kw = d.get("keyword")
+            if kw:
+                k = by_kw.setdefault(kw, {"clicks": 0, "orders": 0, "commission": 0,
+                                          "publishes": 1, "first_seen": day, "last": day})
+                k["clicks"] += d.get("clicks", 0)
+                k["orders"] += d.get("orders", 0)
+                k["commission"] += d.get("commission", 0)
+                k["last"] = day
+    return by_sub, by_post, by_kw
 
 
 def run() -> None:
-    """일일 ROI 집계 — 어제 1일치 (쿠팡 + 알리)."""
-    yesterday = date.today() - timedelta(days=1)
-    log(f"[ROI] 집계 시작 — 대상일 {yesterday}", "step")
+    lookback = max(1, int(os.getenv("ROI_LOOKBACK_DAYS", "7") or "7"))
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=lookback - 1)
+    log(f"[ROI] 집계 시작 — {start} ~ {end} ({lookback}일 재조회)", "step")
 
     queue = _load_queue(DEFAULT_QUEUE_PATH)
-    yest_iso = yesterday.isoformat()
+    posts_by_sub = _index_posts_by_subid(queue)
 
-    # 알리 ROI 도 같은 roi_db 에 누적 — 쿠팡 처리 직전에 미리 로드
-    roi_db = _load_json(ROI_PATH, {})
+    db = _load_json(COUPANG_ROI, {"daily": {}})
+    daily: dict = db.get("daily", {})
 
-    # ── 알리익스프레스 ROI ──────────────────────────────────────────────────
-    ali_processed = _aggregate_aliexpress(yest_iso, queue, roi_db)
+    unattributed_subs: set[str] = set()
+    shared_subs: set[str] = set()
+    fetched_days = 0
+    for i in range(lookback):
+        day = start + timedelta(days=i)
+        # None(조회 실패)과 [](활동 0건)을 구분한다. 실패를 warn 으로 삼키면
+        # ledger 가 success 로 오판해 측정 루프 죽음이 몇 주씩 조용히 지나간다.
+        rows = fetch_daily_stats(day, day)
+        if rows is None:
+            log(f"[ROI] {day} 쿠팡 리포트 조회 실패 (자격/서명/HTTP) — 이 날짜는 갱신 안 함. "
+                "python -m common.coupang_stats 로 확인", "error")
+            continue
+        fetched_days += 1
+        bucket = {}
+        for r in rows:
+            sid = r.get("subId") or "(none)"
+            posts = posts_by_sub.get(sid, [])
+            if not posts:
+                unattributed_subs.add(sid)
+            elif len(posts) > 1:
+                shared_subs.add(sid)
+            bucket[sid] = _attribute(r, posts)
+        daily[day.isoformat()] = bucket
 
-    # ── 쿠팡 파트너스 ROI ───────────────────────────────────────────────────
-    coupang_pubs = [
-        it for it in queue
-        if (it.get("source") or "") == "coupang"
-        and (it.get("keyword") or "").strip()
-        and (it.get("queued_at") or "").startswith(yest_iso)
-    ]
-    log(f"[ROI] 어제 쿠팡 발행 후보: {len(coupang_pubs)}건", "info")
-    if not coupang_pubs:
-        log("[ROI] 어제 쿠팡 발행 없음 — 알리만 처리", "info")
-        # 알리도 0 이면 진짜 종료, 아니면 알리 결과만 저장
-        if ali_processed > 0:
-            _save_json(ROI_PATH, roi_db)
+    if fetched_days == 0:
+        log("[ROI] 모든 날짜 조회 실패 — 저장하지 않음", "error")
         return
 
-    # 알리 집계분은 쿠팡 조회 결과와 무관하게 보존해야 한다 — 아래 early return
-    # 경로들에서 함께 저장.
-    def _save_ali_partial() -> None:
-        if ali_processed > 0:
-            _save_json(ROI_PATH, roi_db)
+    cutoff = (end - timedelta(days=_KEEP_DAYS)).isoformat()
+    daily = {d: v for d, v in daily.items() if d >= cutoff}
+    by_sub, by_post, by_kw = _rebuild_totals(daily)
 
-    # 2) 쿠팡 stats 조회 — None(조회 실패)과 [](활동 0건)을 구분한다.
-    # 실패를 warn 으로 삼키면 ledger 가 success 로 오판해 측정 루프 죽음이
-    # 몇 주씩 조용히 지나간다 (실측 2026-07: 401 회귀 17일 미감지).
-    raw = fetch_daily_stats(yesterday, yesterday)
-    if raw is None:
-        _save_ali_partial()
-        log("[ROI] 쿠팡 stats 조회 실패 (자격/서명/HTTP) — 쿠팡 ROI 미갱신. "
-            "python -m tools.coupang_source_roi 로 확인", "error")
-        return
-    if not raw:
-        _save_ali_partial()
-        log("[ROI] 어제 쿠팡 클릭/주문 활동 0건 — 쿠팡 ROI 갱신 없음", "info")
-        return
+    _save_json(COUPANG_ROI, {
+        "daily": daily, "by_sub": by_sub, "by_post": by_post,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    })
+    _save_json(KEYWORD_ROI, by_kw)
 
-    rows = [_row_to_normalized(r) for r in raw]
-    matched_any = any(r["clicks"] or r["orders"] or r["commission"] for r in rows)
-    if not matched_any:
-        _save_ali_partial()
-        log("[ROI] 정규화 결과 모두 0 — 응답 스키마 불일치 가능. raw 샘플:", "error")
-        for r in raw[:3]:
-            log(f"  {json.dumps(r, ensure_ascii=False)}", "info")
-        return
-
-    # 3) subId 별 합산 (publish_queue 항목과 platform/subId 매칭은 차후 정교화)
-    by_sub = {}
-    for r in rows:
-        sub = r["sub_id"] or "(unknown)"
-        b = by_sub.setdefault(sub, {"clicks": 0, "orders": 0, "commission": 0})
-        b["clicks"]     += r["clicks"]
-        b["orders"]     += r["orders"]
-        b["commission"] += r["commission"]
-
-    # 4) 키워드별 누적 (현재는 어제 발행 키워드 전체를 평균 분배 — subId/URL
-    #    매칭 정밀화는 publish_queue 의 affiliate_url 패턴이 확정되면 적용)
-    total_clicks = sum(b["clicks"] for b in by_sub.values())
-    total_orders = sum(b["orders"] for b in by_sub.values())
-    total_comm   = sum(b["commission"] for b in by_sub.values())
-    n = len(coupang_pubs)
-    per = {
-        "clicks":     total_clicks // max(n, 1),
-        "orders":     total_orders // max(n, 1),
-        "commission": total_comm // max(n, 1),
-    }
-
-    for it in coupang_pubs:
-        kw = it["keyword"]
-        agg = roi_db.setdefault(kw, {
-            "clicks": 0, "orders": 0, "commission": 0,
-            "publishes": 0, "first_seen": yest_iso,
-        })
-        agg["clicks"]     += per["clicks"]
-        agg["orders"]     += per["orders"]
-        agg["commission"] += per["commission"]
-        agg["publishes"]  += 1
-        agg["last"]        = yest_iso
-    _save_json(ROI_PATH, roi_db)
-
-    log(f"[ROI] 키워드 ROI 갱신: 총 클릭 {total_clicks}, 주문 {total_orders}, "
-        f"수수료 {total_comm} → {n}개 키워드에 분배", "ok")
-
-    # 5) 옵션 — keyword_pool.json 에 roi 메타 병합
-    if os.getenv("ROI_PROPAGATE_POOL", "false").lower() == "true":
-        pool = _load_json(KEYWORD_POOL, {})
-        kws = pool.get("keywords", [])
-        updated = 0
-        for item in kws:
-            kw = item.get("keyword", "")
-            if kw in roi_db:
-                item["roi"] = dict(roi_db[kw])
-                updated += 1
-        if updated:
-            _save_json(KEYWORD_POOL, pool)
-            log(f"[ROI] keyword_pool 메타 병합: {updated}개 항목", "info")
+    window = [daily[d] for d in daily if start.isoformat() <= d <= end.isoformat()]
+    clicks = sum(v.get("clicks", 0) for b in window for v in b.values())
+    comm = sum(v.get("commission", 0) for b in window for v in b.values())
+    log(f"[ROI] 최근 {lookback}일: 클릭 {clicks}, 수수료 {comm:,}원 / "
+        f"subId {len(by_sub)}개 누적, 글 단위 귀속 {len(by_post)}건", "ok")
+    if shared_subs:
+        log(f"[ROI] subId 공유로 글 단위 귀속 불가: {sorted(shared_subs)} — "
+            "글마다 고유 subId 를 쓰면 글/키워드 ROI 가 잡힌다", "info")
+    if unattributed_subs:
+        log(f"[ROI] publish_queue 에 없는 subId: {sorted(unattributed_subs)}", "info")
 
 
 if __name__ == "__main__":

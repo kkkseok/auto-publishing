@@ -1,0 +1,16 @@
+Subject: App 1655751472297844 restricted under Platform Term 7.e.i.2 - request for the specific finding
+
+Hello,
+
+My app "auto-publishing" (App ID 1655751472297844) has been restricted under Platform Term 7.e.i.2 since August 18, 2026. I responded through the Violations page on August 25, September 14 and September 21. Each response was marked "unresolved" without any explanation.
+
+The notice only repeats the general wording of 7.e.i.2. It does not say which posts, API requests, or behavior were found to have a negative impact, so I cannot tell what still needs to change.
+
+Could you please:
+1. Tell me the specific finding behind this restriction (for example post IDs, request timestamps, or the policy area involved).
+2. Confirm whether the restriction is on the app only, or also on my developer account or the connected Threads account.
+3. Tell me if any requirement remains for reinstatement, or if the decision is final.
+
+Since September 21, all Threads API activity from the app has been suspended on my side and will stay suspended until I hear back.
+
+Thank you.

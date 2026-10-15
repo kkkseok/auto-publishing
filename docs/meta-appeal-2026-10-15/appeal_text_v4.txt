@@ -1,0 +1,16 @@
+App: auto-publishing | App ID: 1655751472297844
+Platform Term 7.e.i.2 - fourth response (previous: Aug 25, Sep 14, Sep 21, 2026)
+
+All three previous responses were marked "unresolved" without a stated reason. I have answered "No" to the first question this time because that is accurate: the notice does not identify which request, post, or behavior was found to have a negative impact, and I do not want to confirm a cause I have not been told.
+
+Current state of the app:
+- Threads API activity from my code has been on hold since September 21, 2026. All Threads publishing and token-refresh schedules are removed, and a persistent hold blocks every Threads API call path in the repository until I record a reinstatement notice from Meta.
+- My local records show no Threads posts published since September 21.
+- The safeguards described on September 21 remain in place: every post needs my manual approval, at most 3 posts per day and 1 affiliate post per day, reply chains disabled, and OAuth limited to threads_basic and threads_content_publish.
+
+My request:
+1. Please tell me the specific finding (post IDs, request timestamps, or the behavior category), so I can address it directly.
+2. If any requirement remains for reinstatement, please state it.
+3. If Meta has decided the app will not be reinstated, please tell me, and I will stop submitting responses.
+
+I will keep the hold in place until I receive an answer.

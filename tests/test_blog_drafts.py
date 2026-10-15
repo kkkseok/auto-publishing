@@ -39,3 +39,13 @@ def test_price_post_puts_notice_first_and_links_products():
     body = affiliate_notice.prepend_html(render_html(draft, {}, "D", prods), affiliate_notice.COUPANG)
     assert body.startswith("<!--affiliate-notice-->")
     assert "subid=apts1" in body and "59,000원" in body and "2026.10.16 07:00 기준" in body
+
+
+def test_tracked_price_keywords_dedupe_spacing(tmp_path, monkeypatch):
+    import json
+    import pipelines.price_collector as pc
+    used = tmp_path / "used.json"
+    used.write_text(json.dumps({"에어프라이어 추천": {"kind": "price"}, "에어프라이어추천": {"kind": "price"},
+                                "에너지바우처 신청": {"kind": "info"}}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(pc, "USED", used)
+    assert pc.tracked_keywords() == ["에어프라이어 추천"]

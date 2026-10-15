@@ -269,25 +269,45 @@ def _table(cols: list[str], rows: list[list[str]], color: str) -> str:
             f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
 
 
+_PRODUCT_COLS = (("순위", "9%", "center"), ("상품", "55%", "left"), ("현재가", "18%", "center"),
+                 ("링크", "18%", "center"))
+
+
+def _short_name(name: str, limit: int = 38) -> str:
+    """쿠팡 상품명은 옵션·모델명이 길게 붙는다 — 표 행 높이가 들쭉날쭉하지 않게 단어 경계에서 자른다."""
+    if len(name) <= limit:
+        return name
+    cut = name[:limit].rsplit(" ", 1)[0].rstrip(",·/ ")
+    return cut + "…"
+
+
 def _products_block(products: list[dict], color: str, tistory: bool) -> str:
-    """쿠팡 상품 비교표 — 가격·링크는 모델이 아니라 수집 데이터로 코드가 만든다."""
+    """쿠팡 상품 비교표 — 가격·링크는 모델이 아니라 수집 데이터로 코드가 만든다.
+
+    네이버는 붙여넣은 표의 열 너비를 균등 분할하고 칸마다 기본 글자색·크기를 다르게 입힌다
+    (2026-10-16 사용자 지적: 순위 열이 넓고 상품명이 좁음). 열 너비를 width 속성과 style 양쪽에,
+    글자 크기·색·정렬·세로 정렬을 모든 칸에 명시한다.
+    """
     when = products[0].get("fetched_at", "")
-    rows = "".join(
-        "<tr>"
-        f'<td style="padding:9px 10px;border:1px solid #ddd;text-align:center">{i}</td>'
-        f'<td style="padding:9px 10px;border:1px solid #ddd;{_KEEP}">{_e(p["name"])}'
-        f'{" 🚀" if p.get("is_rocket") else ""}</td>'
-        f'<td style="padding:9px 10px;border:1px solid #ddd;white-space:nowrap"><b>{_e(p["price"])}</b></td>'
-        f'<td style="padding:9px 10px;border:1px solid #ddd;text-align:center">'
-        f'<a href="{html.escape(p["affiliate_url"])}" style="color:{color};font-weight:700">보러가기</a></td>'
-        "</tr>" for i, p in enumerate(products, 1))
-    head = "".join(f'<th style="background:{color};color:#fff;padding:9px 10px;border:1px solid {color}">{c}</th>'
-                   for c in ("순위", "상품", "현재가", "링크"))
+    cell = "padding:10px 8px;border:1px solid #ddd;font-size:15px;color:#333;vertical-align:middle;line-height:1.5;"
+    head = "".join(f'<th width="{w}" style="width:{w};background:{color};color:#fff;padding:10px 8px;'
+                   f'border:1px solid {color};font-size:15px;text-align:center">{c}</th>'
+                   for c, w, _ in _PRODUCT_COLS)
+    rows = []
+    for i, p in enumerate(products, 1):
+        vals = (str(i),
+                _e(_short_name(p["name"])) + (" 🚀" if p.get("is_rocket") else ""),
+                f'<b>{_e(p["price"])}</b>',
+                f'<a href="{html.escape(p["affiliate_url"])}" style="color:{color};font-weight:700">보러가기</a>')
+        rows.append("<tr>" + "".join(
+            f'<td width="{w}" style="width:{w};{cell}text-align:{a};{_KEEP if a == "left" else "white-space:nowrap;"}">{v}</td>'
+            for v, (_, w, a) in zip(vals, _PRODUCT_COLS)) + "</tr>")
     title = f"💰 쿠팡 인기 상품 가격 ({_e(when)} 기준)"
     heading = (f'<h2 style="margin:36px 0 14px;font-size:22px;{_KEEP}">{title}</h2>' if tistory
                else f'<hr><p style="font-size:20px;{_KEEP}"><b>{title}</b></p>')
-    return (heading + f'<table style="width:100%;border-collapse:collapse;margin:8px 0 8px;font-size:15px">'
-            f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+    cols = "".join(f'<col width="{w}" style="width:{w}">' for _, w, _ in _PRODUCT_COLS)
+    return (heading + f'<table style="width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0">'
+            f"<colgroup>{cols}</colgroup><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
             f'<p style="color:#888;font-size:13px;{_KEEP}">순위는 쿠팡 검색 결과 순서이며, 가격은 수시로 바뀝니다. '
             f"구매 전 현재가를 확인하세요. 🚀=로켓배송</p>")
 

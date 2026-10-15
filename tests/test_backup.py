@@ -3,7 +3,7 @@
 검증 포인트:
 - zip 생성 시 대상 파일이 모두 포함되는지
 - rotation 이 오래된 zip 만 삭제하는지
-- .env 토글 옵션
+- .env·세션·쿠키 파일은 절대 포함되지 않는지
 """
 import zipfile
 from datetime import date, timedelta
@@ -20,6 +20,8 @@ def isolated_project(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     (root / "data").mkdir(parents=True)
     (root / "data" / "publish_queue.json").write_text('[]', encoding="utf-8")
+    (root / "data" / "aliexpress_storage.json").write_text('{}', encoding="utf-8")
+    (root / "data" / "naver_blog.pkl").write_bytes(b"x")
     (root / ".sessions" / "newspick_profile").mkdir(parents=True)
     (root / ".sessions" / "newspick_profile" / "Cookies").write_text(
         "fake", encoding="utf-8")
@@ -42,20 +44,17 @@ def test_creates_dated_zip(isolated_project):
 
     with zipfile.ZipFile(out) as zf:
         names = zf.namelist()
-    # data + .sessions + .env 모두 포함
     assert any("publish_queue.json" in n for n in names)
-    assert any("Cookies" in n for n in names)
-    assert any(n == ".env" for n in names)
 
 
-def test_excludes_env_when_disabled(isolated_project, monkeypatch):
-    monkeypatch.setenv("BACKUP_INCLUDE_ENV", "false")
+def test_never_includes_secrets(isolated_project):
     out = backup._create_backup()
     with zipfile.ZipFile(out) as zf:
         names = zf.namelist()
     assert ".env" not in names
-    # 다른 대상은 여전히 포함
-    assert any("publish_queue.json" in n for n in names)
+    assert not any(n.startswith(".sessions") for n in names)
+    assert not any("Cookies" in n for n in names)
+    assert not any("storage" in n or n.endswith(".pkl") for n in names)
 
 
 def test_rotation_keeps_recent_deletes_old(isolated_project, monkeypatch):

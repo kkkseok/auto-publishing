@@ -1,10 +1,15 @@
 """
 일일 백업 파이프라인.
 
-백업 대상:
-  - data/*.json  (publish_queue, keyword_pool, keyword_roi, used_keywords 등)
-  - .sessions/   (Playwright 영속 프로필 — 재로그인 비용 절감)
-  - .env         (시크릿 — 사용자가 따로 보관도 권장)
+백업 대상: data/ 의 운영 데이터 (publish_queue, keyword_pool, coupang_roi,
+pipeline_runs, tistory_queue 등).
+
+백업하지 않는 것 (2026-10-15 변경):
+  - .env, .sessions/, data 안의 쿠키·세션 파일 — 예전엔 이것들까지 평문 zip 에
+    담아 하루 ~510MB, 14일 ~7GB 의 시크릿 사본이 디스크에 쌓였다. 세션은
+    만료되면 어차피 재로그인해야 해서 복원 가치도 낮다. .env 는 사용자가
+    비밀번호 관리자 등에 따로 보관한다.
+  - .runtime/ — 하트비트·임시 파일뿐이고, 수동 .env 백업이 놓이는 곳이라 제외.
 
 저장 위치: backups/YYYY-MM-DD.zip  (BACKUP_DIR env 로 변경 가능)
 보관 정책: 최근 BACKUP_KEEP_DAYS (기본 14) 일치만 유지, 그 외 자동 삭제
@@ -54,9 +59,14 @@ def _keep_days() -> int:
         return 14
 
 
-def _include_env() -> bool:
-    """.env 백업 여부 (기본 True). 공유 폴더 백업 시 false 로 끄는 게 안전."""
-    return os.getenv("BACKUP_INCLUDE_ENV", "true").lower() == "true"
+# data/ 안에서도 로그인 쿠키·세션을 담는 파일은 제외한다.
+_SECRET_NAME_PARTS = ("storage", "session", "cookie", "token")
+_SECRET_SUFFIXES = (".pkl",)
+
+
+def _is_secret(p: Path) -> bool:
+    name = p.name.lower()
+    return p.suffix in _SECRET_SUFFIXES or any(k in name for k in _SECRET_NAME_PARTS)
 
 
 def _iter_files(targets: list[Path]):
@@ -70,7 +80,9 @@ def _iter_files(targets: list[Path]):
         for p in t.rglob("*"):
             if p.is_file():
                 # 캐시/로그 류 제외 — sqlite WAL 등은 일관성 위해 포함
-                if p.suffix in (".pyc",) or "__pycache__" in p.parts:
+                if p.suffix in (".pyc", ".tmp") or "__pycache__" in p.parts:
+                    continue
+                if _is_secret(p):
                     continue
                 rel = p.relative_to(_BASE_DIR)
                 yield str(rel).replace("\\", "/"), p
@@ -84,13 +96,7 @@ def _create_backup() -> Path:
     today = date.today().isoformat()
     out_path = out_dir / f"{today}.zip"
 
-    targets = [
-        _BASE_DIR / "data",
-        _BASE_DIR / ".sessions",
-        _BASE_DIR / ".runtime",
-    ]
-    if _include_env():
-        targets.append(_BASE_DIR / ".env")
+    targets = [_BASE_DIR / "data"]
 
     n_files = 0
     total_bytes = 0

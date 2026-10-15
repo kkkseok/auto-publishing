@@ -173,6 +173,13 @@ def _resolve_blogs() -> list[str]:
 
 _BLOGS_CACHE: list[str] = _resolve_blogs()
 
+# 확장(background/popup)이 모든 요청에 붙이는 헤더. 비밀값이 아니라 "커스텀
+# 헤더를 붙일 수 있는 주체 = 확장" 이라는 브라우저 규칙에 기대는 표식이다.
+BRIDGE_CLIENT_HEADER = "X-Bridge-Client"
+BRIDGE_CLIENT_VALUE = "auto-publishing-ext"
+# 비워두면 아무 chrome-extension:// origin 허용. 지정하면 그 확장 ID 하나만.
+BRIDGE_EXTENSION_ID = os.getenv("TISTORY_BRIDGE_EXTENSION_ID", "").strip()
+
 
 class BridgeHandler(BaseHTTPRequestHandler):
     """HTTP handler — JSON 응답 + extension CORS."""
@@ -181,14 +188,59 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # BaseHTTPRequestHandler 의 stderr 출력을 우리 logger 로 통일
         log(f"[bridge] {self.address_string()} - {fmt % args}", "info")
 
-    # ─── CORS / OPTIONS ──────────────────────────────────────────────────────
+    # ─── 접근 제어 / CORS ────────────────────────────────────────────────────
+    # 브리지는 127.0.0.1 에만 바인딩되지만, 같은 크롬에서 열린 아무 웹페이지도
+    # localhost 로 요청을 보낼 수 있다. 예전의 `Access-Control-Allow-Origin: *`
+    # 는 그런 페이지가 /list 로 큐(본문·제휴링크)를 읽고 /done·/fail 로 상태를
+    # 위조하게 열어 두었다. 세 겹으로 막는다:
+    #   1) Host 가 localhost/127.0.0.1 이 아니면 거부 — DNS rebinding 차단
+    #   2) Origin 이 있으면 chrome-extension:// 만 허용 — 웹페이지 발 CORS 요청 차단
+    #   3) /healthz 외 모든 경로에 X-Bridge-Client 헤더 필수 — <img>·폼 POST 처럼
+    #      Origin 없이 날아오는 단순 요청은 커스텀 헤더를 붙일 수 없다.
+    #      웹페이지가 붙이려 하면 preflight 가 생기고 2) 에서 거부된다.
+
+    def _allowed_origin(self) -> str | None:
+        origin = self.headers.get("Origin", "")
+        if not origin.startswith("chrome-extension://"):
+            return None
+        if BRIDGE_EXTENSION_ID and origin != f"chrome-extension://{BRIDGE_EXTENSION_ID}":
+            return None
+        return origin
+
+    def _reject_foreign(self, path: str) -> bool:
+        """허용되지 않은 요청이면 403 을 보내고 True."""
+        host = (self.headers.get("Host", "") or "").split(":", 1)[0].lower()
+        reason = ""
+        if host not in ("localhost", "127.0.0.1"):
+            reason = f"host {host!r}"
+        elif self.headers.get("Origin") and self._allowed_origin() is None:
+            reason = f"origin {self.headers.get('Origin')!r}"
+        elif (self.command != "OPTIONS" and path != "/healthz"
+              and self.headers.get(BRIDGE_CLIENT_HEADER) != BRIDGE_CLIENT_VALUE):
+            reason = f"{BRIDGE_CLIENT_HEADER} 헤더 없음"
+        if not reason:
+            return False
+        log(f"[bridge] 차단: {self.command} {path} — {reason}", "warn")
+        body = json.dumps({"error": "forbidden"}).encode("utf-8")
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
 
     def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self._allowed_origin()
+        if origin is None:
+            return
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", f"Content-Type, {BRIDGE_CLIENT_HEADER}")
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        if self._reject_foreign(self.path.split("?", 1)[0]):
+            return
         self.send_response(204)
         self._cors()
         self.end_headers()
@@ -224,6 +276,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
+        if self._reject_foreign(path):
+            return
         if path == "/healthz":
             self._json(200, {
                 "ok": True,
@@ -265,6 +319,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
+        if self._reject_foreign(path):
+            return
         if path == "/captcha/needed":
             # background.js 가 chrome.tabs.captureVisibleTab 으로 캡처한 이미지
             # 를 텔레그램으로 전송. 본인이 답글로 답안 입력.

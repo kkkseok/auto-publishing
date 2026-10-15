@@ -7,6 +7,17 @@
 console.log("[bridge] background.js loaded @", new Date().toISOString());
 
 const BRIDGE = "http://localhost:5757";
+// bridge 는 이 헤더가 없는 요청을 거부한다 (웹페이지발 위조 요청 차단 —
+// pipelines/tistory_bridge.py 의 _reject_foreign 참고). 모든 bridge 호출은
+// bridgeFetch 를 거친다.
+const BRIDGE_HEADERS = { "X-Bridge-Client": "auto-publishing-ext" };
+
+function bridgeFetch(path, init = {}) {
+  return fetch(`${BRIDGE}${path}`, {
+    ...init,
+    headers: { ...BRIDGE_HEADERS, ...(init.headers || {}) },
+  });
+}
 const ACTIVE_KEY = "active_item";
 const POLL_PERIOD_MIN = 0.5; // 30초 — Chrome 알람 최소값
 // Kakao SSO 쿠키가 무인/idle 상태에서 ~24h 안에 만료되는 경향. 6시간마다
@@ -34,7 +45,7 @@ async function getActiveItem() {
 
 async function fetchNext() {
   try {
-    const r = await fetch(`${BRIDGE}/next`, { method: "GET" });
+    const r = await bridgeFetch("/next", { method: "GET" });
     if (r.status === 204) return null;
     if (!r.ok) {
       console.warn("[bridge] /next status", r.status);
@@ -49,7 +60,7 @@ async function fetchNext() {
 
 async function reportDone(id, url, postId) {
   try {
-    await fetch(`${BRIDGE}/done`, {
+    await bridgeFetch("/done", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, url, post_id: postId || "" }),
@@ -61,7 +72,7 @@ async function reportDone(id, url, postId) {
 
 async function reportFail(id, error) {
   try {
-    await fetch(`${BRIDGE}/fail`, {
+    await bridgeFetch("/fail", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, error: String(error).slice(0, 500) }),
@@ -231,6 +242,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       return;
     }
+    if (msg.type === "captcha-answer") {
+      // content.js 는 페이지(tistory.com) origin 으로 요청하게 되므로 bridge
+      // 가 거부한다. 답안 polling 은 background 가 대신 한다.
+      try {
+        const r = await bridgeFetch(`/captcha/answer/${encodeURIComponent(msg.item_id || "")}`);
+        if (r.status === 200) {
+          const d = await r.json();
+          sendResponse({ ok: true, answer: d.answer || null });
+        } else {
+          sendResponse({ ok: true, answer: null });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message || String(e) });
+      }
+      return;
+    }
     if (msg.type === "captcha-needed") {
       // content.js 가 DKAPTCHA 위젯을 감지 → 우리가 탭 캡처 후 bridge 경유 텔레그램 전송
       const tabId = sender.tab?.id;
@@ -249,7 +276,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
         const imageB64 = dataUrl.split(",")[1];
         console.log("[bridge] captureVisibleTab 캡처 길이:", imageB64.length);
-        const r = await fetch(`${BRIDGE}/captcha/needed`, {
+        const r = await bridgeFetch("/captcha/needed", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: itemId, image_b64: imageB64 }),
@@ -274,7 +301,7 @@ async function sessionKeepalive() {
   // bridge /healthz 응답의 blogs 목록을 사용 — .env 의 TISTORY_BLOG_* 매핑 그대로.
   let blogs = [];
   try {
-    const r = await fetch(`${BRIDGE}/healthz`);
+    const r = await bridgeFetch("/healthz");
     if (r.ok) {
       const d = await r.json();
       blogs = Array.isArray(d.blogs) ? d.blogs : [];

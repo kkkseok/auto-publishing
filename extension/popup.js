@@ -1,6 +1,8 @@
 // popup UI 로직 — bridge 상태 / 활성 작업 / 큐 통계 표시.
 
 const BRIDGE = "http://localhost:5757";
+// bridge 는 이 헤더 없는 요청을 거부한다 (background.js 의 BRIDGE_HEADERS 와 동일).
+const BRIDGE_HEADERS = { "X-Bridge-Client": "auto-publishing-ext" };
 
 async function refresh() {
   // enabled 토글
@@ -19,7 +21,7 @@ async function refresh() {
   // bridge healthz
   const bridge = document.getElementById("bridge");
   try {
-    const r = await fetch(`${BRIDGE}/healthz`);
+    const r = await fetch(`${BRIDGE}/healthz`, { headers: BRIDGE_HEADERS });
     if (r.ok) {
       const d = await r.json();
       bridge.innerHTML = `<span class="ok">✓ bridge OK</span> — pending ${d.pending || 0}건`;
@@ -33,7 +35,7 @@ async function refresh() {
   // 큐 통계
   const counts = document.getElementById("counts");
   try {
-    const r = await fetch(`${BRIDGE}/list`);
+    const r = await fetch(`${BRIDGE}/list`, { headers: BRIDGE_HEADERS });
     if (r.ok) {
       const items = await r.json();
       const tally = { pending: 0, claimed: 0, done: 0, failed: 0 };

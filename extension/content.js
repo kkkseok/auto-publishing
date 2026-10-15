@@ -166,13 +166,11 @@
     let answer = null;
     while (Date.now() < answerDeadline) {
       try {
-        const r = await fetch(`http://localhost:5757/captcha/answer/${itemId}`);
-        if (r.status === 200) {
-          const d = await r.json();
-          if (d.answer) {
-            answer = d.answer;
-            break;
-          }
+        // bridge 직접 호출 금지 — 페이지 origin 이라 거부된다. background 경유.
+        const d = await chrome.runtime.sendMessage({ type: "captcha-answer", item_id: itemId });
+        if (d?.answer) {
+          answer = d.answer;
+          break;
         }
       } catch (e) {}
       await new Promise((r) => setTimeout(r, 3000));

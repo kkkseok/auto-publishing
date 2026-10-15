@@ -37,7 +37,7 @@ python -m tools.fix_threads_urls --dry-run           # diagnose then re-run with
 
 # One-off Bash health checks
 Invoke-RestMethod http://localhost:5757/healthz
-Invoke-RestMethod http://localhost:5757/captcha/state
+Invoke-RestMethod http://localhost:5757/captcha/state -Headers @{"X-Bridge-Client"="auto-publishing-ext"}
 
 # Manual session refresh (use when Aliexpress/Newspick login expires)
 python tools/aliexpress_manual_login.py
@@ -169,6 +169,16 @@ extension/  (user's regular Chrome, Manifest V3)
 
 Key gotchas in this flow (each was an actual debugging session):
 
+- **Bridge access control**: the bridge binds 127.0.0.1 but any web page open
+  in the same Chrome can reach localhost. `BridgeHandler._reject_foreign`
+  rejects a non-localhost `Host` (DNS rebinding), any `Origin` that is not
+  `chrome-extension://` (optionally pinned by `TISTORY_BRIDGE_EXTENSION_ID`),
+  and every path except `/healthz` that lacks `X-Bridge-Client:
+  auto-publishing-ext`. Web pages cannot attach that header without a
+  preflight, which the Origin check rejects. Consequence: content scripts
+  must not call the bridge directly (they carry the page's origin) — they go
+  through `chrome.runtime.sendMessage` (`captcha-answer`) to background.js,
+  whose `bridgeFetch` adds the header. Manual probes need the header too.
 - **content_script worlds**: `window.tinymce` is on the page's window, not the
   isolated-world content script's. Anything that touches page globals goes
   through `main_world.js` via `window.postMessage` RPC.

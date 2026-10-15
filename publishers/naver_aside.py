@@ -69,9 +69,14 @@ def build_script(blog_id: str, title: str, body_html: str, tags: list[str],
     if category:
         steps.append(
             "await page.locator('button[class*=selectbox_button]').first().click(); await sleep(800);"
-            f"out.category=await page.evaluate((name)=>{{const o=[...document.querySelectorAll('[class*=layer] li, "
-            "[role=option]')].find(e=>e.textContent.trim()===name); if(o){(o.querySelector('button,label,span')||o).click(); "
-            f"return name;}} return 'not found: '+name;}}, {j(category)}); await sleep(600);")
+            # 목록은 라디오 + label[for="<번호>_<이름>"] — span 이 아니라 label 을 실제 클릭해야 선택된다
+            f"out.category=await page.evaluate((name)=>{{const l=[...document.querySelectorAll('[class*=option_list_layer] label')]"
+            ".find(e=>e.textContent.trim()===name); return l?l.getAttribute('for'):null;}, "
+            f"{j(category)}); if(out.category){{ await page.click('label[for=\"'+out.category+'\"]'); }} "
+            f"else {{ out.category='not found: '+{j(category)}; }} await sleep(600);"
+            # 선택이 실제로 반영됐는지 — 셀렉트 버튼에 보이는 이름을 읽는다
+            "out.categoryShown=await page.evaluate(()=>{const b=document.querySelector('button[class*=selectbox_button]'); "
+            "return b?b.innerText.trim():null;});")
     for t in tags[:10]:
         steps.append(f"await page.click('#tag-input'); await page.keyboard.type({j(t)}); "
                      "await page.keyboard.press('Enter'); await sleep(150);")
@@ -120,5 +125,5 @@ def publish(blog_id: str, title: str, body_html: str, tags: list[str], *,
         return NaverPublishResult(False, message=f"발행 후 logNo 없음: {out.get('url')}")
     url = f"https://blog.naver.com/{blog_id}/{out['logNo']}"
     log(f"[네이버/Aside] 발행 {'(비공개) ' if private else ''}{url} · 표 {out.get('tables')} · "
-        f"카테고리 {out.get('category', '-')}", "ok")
+        f"카테고리 {out.get('categoryShown') or out.get('category', '-')}", "ok")
     return NaverPublishResult(True, url=url, log_no=out["logNo"], message=json.dumps(out, ensure_ascii=False))

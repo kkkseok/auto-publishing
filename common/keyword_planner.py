@@ -28,8 +28,9 @@ SEEDS = {
     ],
 }
 
-# 블로그 A(trendscope-498) 카테고리 — 키워드에 든 씨앗으로 고른다. 이름은 블로그 관리의
-# 카테고리 이름과 글자까지 같아야 Aside 가 선택할 수 있다.
+# 블로그 카테고리 — 키워드에 든 씨앗으로 고른다. 이름은 블로그 관리의 카테고리 이름과
+# 글자까지 같아야 발행 때 선택된다 (네이버: Aside, 티스토리: 확장 content.js).
+# 생활정보형 A·C 는 INFO_CATEGORIES, 가격형 B·D 는 PRICE_CATEGORIES (10-16 네 블로그에 생성).
 INFO_CATEGORIES = {
     "지원금·복지": ("근로장려금", "자녀장려금", "에너지바우처", "기초연금", "부모급여", "청년월세"),
     "세금·환급": ("연말정산", "종합소득세", "의료비공제", "자동차세", "재산세", "건강보험료환급"),
@@ -39,9 +40,28 @@ INFO_CATEGORIES = {
 }
 
 
-def info_category(keyword: str) -> str:
+PRICE_CATEGORIES = {
+    "생활가전": ("가습기", "공기청정기", "로봇청소기", "에어프라이어", "전기요", "제습기", "청소기", "선풍기"),
+    "디지털": ("무선이어폰", "이어폰", "태블릿", "노트북", "모니터", "스마트워치", "키보드", "마우스"),
+    "출산·육아": ("기저귀", "분유", "유모차", "카시트", "물티슈", "젖병"),
+    "뷰티·건강": ("선크림", "샴푸", "전동칫솔", "단백질보충제", "비타민", "유산균", "로션"),
+    "스포츠·레저": ("캠핑의자", "캠핑", "러닝화", "요가매트", "텐트", "자전거"),
+    "반려동물": ("강아지사료", "고양이모래", "강아지", "고양이", "사료"),
+}
+
+
+def _match(keyword: str, table: dict) -> str:
     k = keyword.replace(" ", "")
-    return next((cat for cat, seeds in INFO_CATEGORIES.items() if any(s in k for s in seeds)), "")
+    return next((cat for cat, seeds in table.items() if any(s in k for s in seeds)), "")
+
+
+def info_category(keyword: str) -> str:
+    return _match(keyword, INFO_CATEGORIES)
+
+
+def category_for(blog: str, keyword: str) -> str:
+    """블로그(A·B·C·D)와 키워드로 카테고리 이름. 못 고르면 ''(카테고리 없음)."""
+    return _match(keyword, PRICE_CATEGORIES if blog in ("B", "D") else INFO_CATEGORIES)
 
 
 # 행동 직전 의도 — 이런 말이 붙은 검색은 글을 끝까지 읽고 클릭할 가능성이 높다.

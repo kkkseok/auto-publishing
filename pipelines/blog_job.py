@@ -22,7 +22,7 @@ load_dotenv()
 
 from common import affiliate_notice, blog_drafts
 from common.draft_writer import render_html
-from common.keyword_planner import info_category
+from common.keyword_planner import category_for
 from common.logger import log
 from common.publish_queue import add_url
 
@@ -96,14 +96,15 @@ def publish(draft_id: str, private: bool = False) -> bool:
         account = os.getenv(acct_env, "")
         if blog == "B" and not account:
             return _fail(draft_id, draft["title"], "블로그 B 는 별도 Aside 계정 필요 (NAVER_ASIDE_ACCOUNT_PRICE 미설정)")
-        category = (info_category(item["keyword"]) if blog == "A" else "") or os.getenv(cat_env, "")
+        category = category_for(blog, item["keyword"]) or os.getenv(cat_env, "")
         r = naver_publish(os.getenv(id_env, ""), draft["title"], body, draft["tags"],
                           category=category, private=private, account=account)
     else:
         from common.tistory_blogs import resolve_blog_name
         from publishers.tistory_bridge import TistoryBridgePublisher
         pub = TistoryBridgePublisher(resolve_blog_name(TISTORY_ROLE[blog]))
-        res = pub.post(draft["title"], body, tags=draft["tags"], category="", visibility=0 if private else 20,
+        res = pub.post(draft["title"], body, tags=draft["tags"], category=category_for(blog, item["keyword"]),
+                       visibility=0 if private else 20,
                        source=source, keyword=item["keyword"], affiliate_url=link)
         if not res.success:
             return _fail(draft_id, draft["title"], f"티스토리 대기열 등록 실패: {res.message}")

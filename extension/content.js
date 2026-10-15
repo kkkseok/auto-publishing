@@ -339,6 +339,26 @@
       }
     }
 
+    // 4.2) 카테고리 — 에디터 상단 콤보박스(#category-btn → #category-list 의 role=option).
+    //      이름이 없으면 '카테고리 없음'으로 두고 진행한다 (발행 자체를 막지는 않는다).
+    if (item.category) {
+      const catBtn = document.querySelector("#category-btn");
+      if (catBtn) {
+        catBtn.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const opt = [...document.querySelectorAll('#category-list [role="option"]')]
+          .find((o) => (o.getAttribute("aria-label") || "").trim() === item.category);
+        if (opt) {
+          opt.click();
+          await new Promise((r) => setTimeout(r, 400));
+          console.log("[ap] ✓ 카테고리:", (catBtn.innerText || "").trim());
+        } else {
+          catBtn.click();
+          console.warn("[ap] 카테고리 미발견 — 카테고리 없음으로 발행:", item.category);
+        }
+      }
+    }
+
     // 4.5) 발행 전 최종 검증 — 이어쓰기 draft 복원 등이 입력값을 덮어썼으면
     //      잘못된 글(중복 제목/남의 본문)을 발행하지 않도록 여기서 중단한다.
     const titleNow = (document.querySelector("textarea#post-title-inp")?.value || "").trim();

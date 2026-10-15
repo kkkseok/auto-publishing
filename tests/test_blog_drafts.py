@@ -49,3 +49,11 @@ def test_tracked_price_keywords_dedupe_spacing(tmp_path, monkeypatch):
                                 "에너지바우처 신청": {"kind": "info"}}, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(pc, "USED", used)
     assert pc.tracked_keywords() == ["에어프라이어 추천"]
+
+
+def test_category_for_each_blog():
+    from common.keyword_planner import category_for
+    assert category_for("B", "에어프라이어 추천") == "생활가전"
+    assert category_for("D", "고양이모래 추천") == "반려동물"
+    assert category_for("C", "실업급여 신청") == "취업·청년"
+    assert category_for("D", "에너지바우처") == ""

@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Korean multi-platform content publishing automation. Pipelines pull from
-content sources (Coupang/AliExpress products, Newspick articles, public data,
-RSS feeds), generate posts via Claude/Gemini, and publish to WordPress, Tistory,
-Naver, GitHub Pages, Twitter, Threads, Pinterest, and Instagram. A `schedule`-
+content sources (Coupang products via the Partners API, public data),
+generate posts via Claude/Gemini, and publish to WordPress, Tistory, Naver,
+GitHub Pages, Twitter, Threads and Pinterest. A `schedule`-
 based runner discovers pipelines via a `SCHEDULE` dict declared in each module
 and runs them per `.env` cron-style times.
 
@@ -22,8 +22,7 @@ internal navigation only.
 
 # Run a single pipeline (replaces module path)
 python -u -m pipelines.coupang_to_tistory
-python -u -m pipelines.newspick_to_threads
-python -u -m pipelines.aliexpress_to_threads --keyword 무선이어폰
+python -u -m pipelines.coupang_to_threads
 
 # Run the scheduler (long-lived; usually started by Task Scheduler instead)
 python -m pipelines.scheduler_runner
@@ -39,9 +38,7 @@ python -m tools.fix_threads_urls --dry-run           # diagnose then re-run with
 Invoke-RestMethod http://localhost:5757/healthz
 Invoke-RestMethod http://localhost:5757/captcha/state -Headers @{"X-Bridge-Client"="auto-publishing-ext"}
 
-# Manual session refresh (use when Aliexpress/Newspick login expires)
-python tools/aliexpress_manual_login.py
-python tools/newspick_manual_login.py
+# Manual session refresh
 python -m scripts.tistory_manual_login
 
 # Windows scheduled task management (admin PowerShell)
@@ -92,11 +89,11 @@ stderr tail into a one-line cause label for the daily summary.
 
 Common kernels share publish loops:
 
-- `pipelines/_kernel/product_wp.py` — Coupang/Aliexpress → WordPress
-- `pipelines/_kernel/newspick.py` — Newspick → any single Publisher
+- `pipelines/_kernel/product_wp.py` — Coupang → WordPress
+- `pipelines/_kernel/base_runner.py` — generic fetch → publish → notify loop
 - `pipelines/_riseset_common.py` — sunrise/sunset post body builder
 
-The kernels accept a config object (`ProductWpConfig`, `NewspickConfig`) that
+The kernels accept a config object (`ProductWpConfig`) that
 plugs in the source factory, publisher factory, and theme.
 
 ### Sources, publishers, common
@@ -249,23 +246,16 @@ or the visible `[광고]` label), so double insertion is impossible.
 `AFFILIATE_NOTICE_IN_TITLE=true` additionally prefixes titles with `[광고]` —
 off by default because it costs CTR; turn it on only if review fails again.
 
-### Aliexpress keyword pool filtering
+### Removed tracks (2026-10-15)
 
-ItemScout's pool contains categories that have zero match on Aliexpress
-(`식품` = food, `여가/생활편의` = leisure services, `도서` = Korean books,
-`면세점` = duty-free, `기타` = misc). `pipelines/aliexpress_to_threads.py`
-defines `ALIEXPRESS_CATEGORIES` whitelist and `get_ali_keywords(n)`, which
-both `aliexpress_to_threads.py` and `aliexpress_to_tistory.py` use. Failed
-keywords are pruned via `mark_keywords_used`, so the pool self-cleans over
-time without further intervention.
-
-### Newspick login
-
-`sources/newspick.py` uses Kakao SSO. The popup flow needs `NEWSPICK_ID` /
-`NEWSPICK_PW` in `.env` (same Kakao account as `TISTORY_EMAIL` /
-`TISTORY_PASSWORD`). Missing these is what made every newspick pipeline
-fail silently for ~a week — the error appears in stderr but exit code is 0,
-which the scheduler now correctly downgrades to `status=failure`.
+Newspick and AliExpress pipelines, sources, login tools and the
+`tistory_session_keepalive` pipeline were deleted during the re-planning:
+Newspick re-published other sites' articles, and AliExpress needed a manual
+Google login every 1–2 weeks plus a slider captcha. Unscheduled image/cafe/
+Instagram pipelines and the DKAPTCHA probe tools went with them. All of it is
+in git history before commit "Remove Newspick, AliExpress and unused pipelines".
+`publishers/tistory.py` (web mode, dead under DKAPTCHA) is still imported by
+the Tistory pipelines' `is_bridge` branches and goes when those are rebuilt.
 
 ### Windows operations
 

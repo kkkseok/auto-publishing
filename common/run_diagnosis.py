@@ -40,19 +40,6 @@ _PATTERNS: list[tuple[re.Pattern, str, str]] = [
         "data.go.kr 마이페이지에서 활용 상태 확인 / 재발급",
     ),
     (
-        # 뉴스픽 전용 — tistory 패턴보다 먼저 매칭돼야 올바른 복구 명령을 안내한다.
-        re.compile(r"뉴스픽\s*세션\s*없음|Kakao\s*SSO\s*로그인\s*실패|newspic", re.I),
-        "뉴스픽 Kakao 세션 만료",
-        "python tools/newspick_manual_login.py 로 수동 로그인",
-    ),
-    (
-        # 알리 전용 — 제휴 세션 만료. 일반 '수동 로그인 필요'(아래)와 키워드
-        # 미매칭(맨 아래)보다 먼저 매칭돼야 정확한 복구 명령을 안내한다.
-        re.compile(r"알리\s*제휴\s*세션\s*만료|aliexpress_manual_login", re.I),
-        "알리 제휴 세션 만료",
-        "python tools/aliexpress_manual_login.py → 'Continue with Google' 로 로그인",
-    ),
-    (
         # 쿠팡 OpenAPI 자격 회귀 — data.go.kr 401 패턴과 구분되도록 쿠팡 문구로 한정.
         re.compile(r"Invalid\s*signature|쿠팡\s*stats\s*조회\s*실패|"
                    r"SECRET_KEY\s*길이\s*이상|쿠팡\s*\w*\s*리포트\s*실패:\s*40[13]", re.I),
@@ -140,13 +127,6 @@ _PATTERNS: list[tuple[re.Pattern, str, str]] = [
         re.compile(r"ConnectionError|ConnectTimeout|Max retries exceeded|requests\.exceptions", re.I),
         "외부 네트워크 오류",
         "일시적 — 다음 슬롯에 자동 회복 가능",
-    ),
-    (
-        # 알리 수집 0건 — 명품/한국 고유명사 등 알리 부적합 키워드. 진짜 장애가
-        # 아니므로 네트워크/Playwright 패턴 뒤에 둬 그것들이 먼저 매칭되게 한다.
-        re.compile(r"수집\s*0건|상품/제휴링크\s*수집|상품/링크\s*수집\s*실패|키워드\s*부적합|매칭\s*부족", re.I),
-        "알리 키워드 미매칭 (검색 0건)",
-        "해당 키워드 풀에서 자동 제외됨 — 조치 불필요 (자가 치유)",
     ),
 ]
 

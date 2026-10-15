@@ -49,65 +49,65 @@ def test_check_profiles_with_real_sqlite(tmp_path, monkeypatch):
     """실제 sqlite 만들어 check_profiles 가 D-day 계산하는지."""
     # 임시 .sessions 디렉토리 구조
     fake_base = tmp_path / "auto-pub"
-    profile = fake_base / ".sessions" / "newspick_profile"
+    profile = fake_base / ".sessions" / "tistory_shared_profile"
     cookies = profile / "Default" / "Network" / "Cookies"
 
-    # 30일 후 만료되는 newspick 쿠키
+    # 30일 후 만료되는 카카오 SSO 쿠키 (Tistory 프로필)
     expire = datetime.now(timezone.utc) + timedelta(days=30)
     _build_cookies_db(cookies, [
-        ("partners.newspic.kr", "partnersMyStatus",
+        (".kakao.com", "_kau",
          _dt_to_chrome_us(expire)),
     ])
 
     monkeypatch.setattr(sh, "_BASE_DIR", fake_base)
     rows = sh.check_profiles(warn_days=7)
 
-    newspick = next(r for r in rows if r["profile"] == "newspick_profile")
-    assert newspick["status"] == "ok"
-    assert newspick["days_left"] is not None
+    profile_row = next(r for r in rows if r["profile"] == "tistory_shared_profile")
+    assert profile_row["status"] == "ok"
+    assert profile_row["days_left"] is not None
     # 30일 ± 1 (실행 시각 차이)
-    assert 29 <= newspick["days_left"] <= 30
+    assert 29 <= profile_row["days_left"] <= 30
 
 
 def test_warn_when_within_warn_days(tmp_path, monkeypatch):
     """warn_days 이내 만료 → status='warn' 검증."""
     fake_base = tmp_path / "auto-pub"
-    cookies = (fake_base / ".sessions" / "newspick_profile"
+    cookies = (fake_base / ".sessions" / "tistory_shared_profile"
                / "Default" / "Network" / "Cookies")
 
     # 3일 + 1시간 후 만료 — 정수 일수 절삭으로 D-2 또는 D-3 로 보고됨
     expire = datetime.now(timezone.utc) + timedelta(days=3, hours=1)
     _build_cookies_db(cookies, [
-        ("partners.newspic.kr", "partnersMyStatus",
+        (".kakao.com", "_kau",
          _dt_to_chrome_us(expire)),
     ])
 
     monkeypatch.setattr(sh, "_BASE_DIR", fake_base)
     rows = sh.check_profiles(warn_days=7)
-    newspick = next(r for r in rows if r["profile"] == "newspick_profile")
-    assert newspick["status"] == "warn"
+    profile_row = next(r for r in rows if r["profile"] == "tistory_shared_profile")
+    assert profile_row["status"] == "warn"
     # warn_days(7) 이내 → days_left 0~7
-    assert newspick["days_left"] is not None
-    assert 0 <= newspick["days_left"] <= 7
+    assert profile_row["days_left"] is not None
+    assert 0 <= profile_row["days_left"] <= 7
 
 
 def test_expired_cookie(tmp_path, monkeypatch):
     """이미 만료된 쿠키 → status='warn', days_left 음수."""
     fake_base = tmp_path / "auto-pub"
-    cookies = (fake_base / ".sessions" / "newspick_profile"
+    cookies = (fake_base / ".sessions" / "tistory_shared_profile"
                / "Default" / "Network" / "Cookies")
 
     expire = datetime.now(timezone.utc) - timedelta(days=5)
     _build_cookies_db(cookies, [
-        ("partners.newspic.kr", "partnersMyStatus",
+        (".kakao.com", "_kau",
          _dt_to_chrome_us(expire)),
     ])
 
     monkeypatch.setattr(sh, "_BASE_DIR", fake_base)
     rows = sh.check_profiles()
-    newspick = next(r for r in rows if r["profile"] == "newspick_profile")
-    assert newspick["status"] == "warn"
-    assert "이미 만료" in newspick["detail"]
+    profile_row = next(r for r in rows if r["profile"] == "tistory_shared_profile")
+    assert profile_row["status"] == "warn"
+    assert "이미 만료" in profile_row["detail"]
 
 
 def test_missing_profile(tmp_path, monkeypatch):

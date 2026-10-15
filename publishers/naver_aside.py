@@ -13,7 +13,8 @@
 비공개 요청이 공개로 나가는 일을 막기 위해서다.
 
 블로그 B(taq87641)는 다른 네이버 ID 소유라, Aside 의 별도 브라우저 프로필에 그 ID 로
-로그인해 두고 NAVER_ASIDE_PROFILE_PRICE 에 프로필 ID 를 넣는다 (`aside host profiles`).
+로그인해 둔다. Aside 는 새 프로필을 별도 로컬 계정(u1, u2 …)으로 붙이므로 `--account` 로
+고른다: NAVER_ASIDE_ACCOUNT_PRICE='u2' (`aside account list` 로 확인).
 """
 import json
 import os
@@ -95,10 +96,11 @@ def build_script(blog_id: str, title: str, body_html: str, tags: list[str],
 
 
 def publish(blog_id: str, title: str, body_html: str, tags: list[str], *,
-            category: str = "", private: bool = False, profile: str = "",
+            category: str = "", private: bool = False, profile: str = "", account: str = "",
             timeout: int = 200) -> NaverPublishResult:
     script = build_script(blog_id, title, body_html, tags, category, private)
-    cmd = [_aside_bin(), "repl"] + (["--profile", profile] if profile else [])
+    cmd = ([_aside_bin(), "repl"] + (["--account", account] if account else [])
+           + (["--profile", profile] if profile else []))
     try:
         proc = subprocess.run(cmd, input=(script + "\nexit\n").encode("utf-8"),
                               capture_output=True, timeout=timeout)

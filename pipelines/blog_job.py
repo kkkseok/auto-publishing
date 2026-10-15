@@ -26,8 +26,8 @@ from common.keyword_planner import info_category
 from common.logger import log
 from common.publish_queue import add_url
 
-NAVER = {"A": ("NAVER_BLOG_ID_INFO", "NAVER_CATEGORY_INFO", "NAVER_ASIDE_PROFILE_INFO"),
-         "B": ("NAVER_BLOG_ID_PRICE", "NAVER_CATEGORY_PRICE", "NAVER_ASIDE_PROFILE_PRICE")}
+NAVER = {"A": ("NAVER_BLOG_ID_INFO", "NAVER_CATEGORY_INFO", "NAVER_ASIDE_ACCOUNT_INFO"),
+         "B": ("NAVER_BLOG_ID_PRICE", "NAVER_CATEGORY_PRICE", "NAVER_ASIDE_ACCOUNT_PRICE")}
 TISTORY_ROLE = {"C": "info", "D": "price"}
 PRICE_BLOGS = ("B", "D")
 MIN_CHARS = 1500
@@ -92,13 +92,13 @@ def publish(draft_id: str, private: bool = False) -> bool:
     blog_drafts.update(draft_id, status="publishing")
     if blog in NAVER:
         from publishers.naver_aside import publish as naver_publish
-        id_env, cat_env, prof_env = NAVER[blog]
-        profile = os.getenv(prof_env, "")
-        if blog == "B" and not profile:
-            return _fail(draft_id, draft["title"], "블로그 B 는 별도 Aside 프로필 필요 (NAVER_ASIDE_PROFILE_PRICE 미설정)")
+        id_env, cat_env, acct_env = NAVER[blog]
+        account = os.getenv(acct_env, "")
+        if blog == "B" and not account:
+            return _fail(draft_id, draft["title"], "블로그 B 는 별도 Aside 계정 필요 (NAVER_ASIDE_ACCOUNT_PRICE 미설정)")
         category = (info_category(item["keyword"]) if blog == "A" else "") or os.getenv(cat_env, "")
         r = naver_publish(os.getenv(id_env, ""), draft["title"], body, draft["tags"],
-                          category=category, private=private, profile=profile)
+                          category=category, private=private, account=account)
     else:
         from common.tistory_blogs import resolve_blog_name
         from publishers.tistory_bridge import TistoryBridgePublisher

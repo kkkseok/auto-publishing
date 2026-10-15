@@ -375,11 +375,28 @@
     await new Promise((r) => setTimeout(r, 400));
 
     // 7) 공개 발행 클릭 → DKAPTCHA 등장 가능
-    const publishBtnId = v === 0 ? "save-private-btn" : "publish-btn";
-    const publishBtn = document.querySelector("#" + publishBtnId);
+    // 비공개 전용 버튼(#save-private-btn)은 2026-10 에디터에 없다 — 비공개 라디오를
+    // 고르면 #publish-btn 이 그대로 발행 버튼 역할을 하는 것으로 보인다. 다만 라디오
+    // 선택이 실패한 채 #publish-btn 을 누르면 비공개 글이 공개로 나가므로, 비공개
+    // 요청일 때는 라디오가 실제로 체크된 경우에만 #publish-btn 으로 폴백한다.
+    let publishBtn = null;
+    let publishBtnId = "publish-btn";
+    if (v === 0) {
+      publishBtn = document.querySelector("#save-private-btn");
+      if (publishBtn) {
+        publishBtnId = "save-private-btn";
+      } else if (vEl && vEl.checked) {
+        publishBtn = document.querySelector("#publish-btn");
+      } else {
+        throw new Error("비공개 라디오 체크 확인 실패 — 공개 발행 방지를 위해 중단");
+      }
+    } else {
+      publishBtn = document.querySelector("#publish-btn");
+    }
     if (!publishBtn) {
       throw new Error("발행 버튼 미발견: #" + publishBtnId);
     }
+    console.log("[ap] 발행 버튼: #" + publishBtnId + " '" + (publishBtn.textContent || "").trim() + "'");
     publishBtn.click();
     publishClicked = true;
     console.log("[ap] ✓ '" + (v === 0 ? "비공개 저장" : "공개 발행") + "' 클릭");

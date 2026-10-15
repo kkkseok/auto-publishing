@@ -878,12 +878,15 @@ class NaverBlogPublisher(Publisher):
         }
         return json.dumps(doc, ensure_ascii=False)
 
-    def _build_population_params(self, category_no: int, tags: list[str]) -> str:
+    def _build_population_params(self, category_no: int, tags: list[str],
+                                 open_type: int = 2) -> str:
+        # openType: 0 비공개 · 1 이웃공개 · 2 전체공개 · 3 서로이웃공개.
+        # 비공개 글은 검색에도 내보내지 않는다.
         params = {
             "configuration": {
-                "openType": 2,
+                "openType": open_type,
                 "commentYn": True,
-                "searchYn": True,
+                "searchYn": open_type != 0,
                 "sympathyYn": True,
                 "scrapType": 2,
                 "outSideAllowYn": True,
@@ -928,8 +931,9 @@ class NaverBlogPublisher(Publisher):
             "user-agent": _USER_AGENT,
         }
 
+        open_type = kwargs.pop("open_type", 2)
         document_model = self._build_document_model(title, content, **kwargs)
-        population_params = self._build_population_params(category_no, tags)
+        population_params = self._build_population_params(category_no, tags, open_type)
 
         data = {
             "blogId": self.blog_id,
@@ -1056,6 +1060,7 @@ class NaverBlogPublisher(Publisher):
             riseset_data:  일출일몰 정보 리스트 (구조화 레이아웃용)
             product:       쿠팡 상품 dict (구조화 레이아웃용)
             intro:         AI 도입부 텍스트
+            open_type:     공개 범위 (0 비공개, 2 전체공개 — 기본 2)
         """
         log(f"네이버 블로그 발행 시작: {title}", "step")
         category_no = kwargs.pop("category_no", 0)

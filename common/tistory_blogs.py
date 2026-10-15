@@ -22,14 +22,15 @@ import os
 from common.logger import log
 
 
+# info/price 는 2026-10 재기획의 2×2 테스트 블로그 (생활 정보형 / 가격 데이터형).
+# 나머지는 기존 파이프라인용 — 비우면 TISTORY_BLOG_NAME 으로 폴백.
 SUPPORTED_ROLES = (
+    "info",
+    "price",
     "realestate",
     "riseset",
-    "newspick",
     "policy",
-    "reserved",
     "backlink",
-    "aliexpress",
     "coupang",
 )
 

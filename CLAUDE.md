@@ -17,8 +17,14 @@ internal navigation only.
 ## Common Commands
 
 ```bash
-# Activate venv first (Windows)
+# Project venv (Python 3.13) — pinned deps; scheduled tasks use it once re-registered
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m playwright install chromium
 .venv\Scripts\activate
+
+# Unit tests (pure logic only — they don't hit real services)
+python -m pytest -q
 
 # Run a single pipeline (replaces module path)
 python -u -m pipelines.coupang_to_tistory
@@ -30,7 +36,7 @@ python -m pipelines.scheduler_runner
 # Bridge HTTP server alone (debugging — production is embedded in scheduler)
 python -m pipelines.tistory_bridge
 
-# Quick state probes (no test framework — these are the verifications)
+# Quick state probes
 python -m tools.reset_tistory_queue                  # unstick claimed/failed queue items
 python -m tools.fix_threads_urls --dry-run           # diagnose then re-run without --dry-run
 
@@ -48,9 +54,15 @@ Stop-ScheduledTask -TaskName AutoPublishing_Scheduler
 Start-ScheduledTask -TaskName AutoPublishing_Scheduler
 ```
 
-There is no test framework, no linter, no build step. Verification is done by
-running a pipeline against the real services with diagnostic logging, then
+`tests/` holds pytest unit tests for pure logic (parsing, guards, backup,
+session health). There is no linter or build step. Anything that touches a
+real service is verified by running the pipeline with diagnostic logging, then
 checking `data/pipeline_runs.json` and `data/publish_queue.json`.
+
+`requirements.txt` pins the runtime versions the scheduler actually runs;
+`requirements-dev.txt` adds pytest and the Streamlit dashboard.
+`tools/install_task_scheduler.ps1` registers `.venv\Scripts\python.exe` when
+`.venv` exists and falls back to the first `python` on PATH otherwise.
 
 Windows console emits `cp949` and crashes on `—` / emoji output. Either
 prepend `python -u` (and ensure scheduler wrapper sets `PYTHONIOENCODING=utf-8`),

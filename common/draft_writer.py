@@ -9,7 +9,11 @@
 """
 import html
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -100,6 +104,54 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
+def _billing() -> str:
+    """subscription (기본) = Claude Code CLI 로 구독 플랜 한도에서 실행, api = ANTHROPIC_API_KEY 과금."""
+    return os.getenv("AI_BILLING", "subscription").strip().lower()
+
+
+def _run_cli(prompt: str, system: str, model: str, tools: list[str],
+             schema: dict | None = None, timeout: int = 900) -> dict:
+    """claude -p 로 한 번 실행하고 JSON 결과를 돌려준다 (구독 플랜 과금).
+
+    - ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 을 자식 환경에서 지운다. 파이프라인은 .env 를
+      읽어 키를 환경에 올리는데, 이게 CLI 로 넘어가면 조용히 API 과금으로 바뀐다.
+    - 프로젝트 CLAUDE.md·훅·MCP 를 읽지 않도록 빈 임시 폴더에서, setting-sources 를 비우고 돈다.
+    - 시스템 프롬프트는 파일로 넘긴다 (윈도우 명령줄 길이 한도 회피).
+    """
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    with tempfile.TemporaryDirectory() as tmp:
+        sys_file = Path(tmp) / "system.md"
+        sys_file.write_text(system, encoding="utf-8")
+        cmd = [shutil.which("claude") or "claude", "-p", "--model", model, "--output-format", "json",
+               "--system-prompt-file", str(sys_file), "--no-session-persistence",
+               "--setting-sources", "", "--strict-mcp-config", "--tools", " ".join(tools) if tools else ""]
+        if tools:
+            cmd += ["--allowedTools", " ".join(tools)]
+        if schema:
+            cmd += ["--json-schema", json.dumps(schema, ensure_ascii=False)]
+        proc = subprocess.run(cmd, input=prompt.encode("utf-8"), capture_output=True, cwd=tmp,
+                              env=env, timeout=timeout)
+    out = proc.stdout.decode("utf-8", errors="replace").strip()
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        raise DraftError(f"CLI 출력 파싱 실패 (rc={proc.returncode}): "
+                         f"{out[:200]} {proc.stderr.decode('utf-8', 'replace')[:200]}")
+    if data.get("is_error") or data.get("subtype") != "success":
+        raise DraftError(f"CLI 실패: {data.get('subtype')} {data.get('api_error_status')} "
+                         f"{str(data.get('result'))[:200]}")
+    return data
+
+
+def _urls_from(text: str, urls: list[str] | None = None) -> list[str]:
+    urls = list(urls or [])
+    for u in re.findall(r"https?://[^\s)\]>\"']+", text):
+        u = u.rstrip(".,")
+        if u not in urls:
+            urls.append(u)
+    return urls
+
+
 def _check(resp) -> None:
     if resp.stop_reason == "refusal":
         cat = getattr(resp.stop_details, "category", None) if resp.stop_details else None
@@ -110,15 +162,22 @@ def _check(resp) -> None:
 
 def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
     """키워드 사실 시트(텍스트)와 검색으로 확인된 출처 URL 목록."""
-    client = client or _client()
     today = date.today().isoformat()
+    ask = f"오늘은 {today}. 키워드: {keyword}\n웹 검색은 5회 이내로 하고, 사실 시트를 만들어 줘."
+    if _billing() == "subscription":
+        data = _run_cli(ask, _RESEARCH_SYSTEM, RESEARCH_MODEL, ["WebSearch", "WebFetch"])
+        facts_text = data.get("result") or ""
+        return {"keyword": keyword, "facts": facts_text, "cited_urls": _urls_from(facts_text),
+                "usage": data.get("usage") or {}, "billing": "subscription",
+                "notional_cost_usd": data.get("total_cost_usd")}
+    client = client or _client()
     with client.messages.stream(
         model=RESEARCH_MODEL, max_tokens=32000,
         system=_RESEARCH_SYSTEM,
         output_config={"effort": "medium"},
         tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 5,
                 "user_location": {"type": "approximate", "country": "KR"}}],
-        messages=[{"role": "user", "content": f"오늘은 {today}. 키워드: {keyword}\n사실 시트를 만들어 줘."}],
+        messages=[{"role": "user", "content": ask}],
     ) as stream:
         resp = stream.get_final_message()
     _check(resp)
@@ -132,21 +191,26 @@ def research(keyword: str, client: anthropic.Anthropic | None = None) -> dict:
                     urls.append(u)
     facts_text = "".join(text)
     # 동적 필터링 웹 검색은 인용을 블록 대신 본문 URL 로만 남기기도 한다 — 둘 다 모은다
-    for u in re.findall(r"https?://[^\s)\]>\"']+", facts_text):
-        u = u.rstrip(".,")
-        if u not in urls:
-            urls.append(u)
-    return {"keyword": keyword, "facts": facts_text, "cited_urls": urls,
-            "usage": resp.usage.to_dict()}
+    return {"keyword": keyword, "facts": facts_text, "cited_urls": _urls_from(facts_text, urls),
+            "usage": resp.usage.to_dict(), "billing": "api"}
 
 
 def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | None = None) -> dict:
     """사실 시트 → 블로그 양식 JSON 초안."""
-    client = client or _client()
     prompt = (f"작성할 블로그: {BLOGS[blog]} (가이드의 해당 섹션 양식을 따른다)\n"
               f"핵심 키워드: {keyword}\n오늘: {date.today().isoformat()}\n\n"
               f"=== 사실 시트 ===\n{facts['facts']}\n\n"
               f"=== 검색으로 확인된 출처 URL ===\n" + "\n".join(facts["cited_urls"]))
+    if _billing() == "subscription":
+        data = _run_cli(prompt, _WRITE_SYSTEM, WRITE_MODEL, [], schema=_DRAFT_SCHEMA)
+        draft = data.get("structured_output")
+        if not isinstance(draft, dict):
+            raise DraftError("구조화 출력이 비어 있음")
+        draft["_usage"] = data.get("usage") or {}
+        draft["_billing"] = "subscription"
+        draft["_notional_cost_usd"] = data.get("total_cost_usd")
+        return draft
+    client = client or _client()
     with client.messages.stream(
         model=WRITE_MODEL, max_tokens=32000,
         system=[{"type": "text", "text": _WRITE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
@@ -159,6 +223,7 @@ def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | No
     raw = next(b.text for b in resp.content if b.type == "text")
     draft = json.loads(raw)
     draft["_usage"] = resp.usage.to_dict()
+    draft["_billing"] = "api"
     return draft
 
 

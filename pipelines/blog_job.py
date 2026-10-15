@@ -1,16 +1,17 @@
-"""승인된 초안 발행 / 수정 요청 반영 — common/blog_drafts 가 답글을 받으면 분리 실행한다.
+"""초안 발행 — 승인 없이 바로 발행한다. blog_drafts_daily 가 호출하고, 수동 재시도도 된다.
 
     python -m pipelines.blog_job publish <draft_id> [--private]
-    python -m pipelines.blog_job revise <draft_id>
 
-발행 경로:
-  A·B 네이버 → publishers/naver_aside (Aside 브라우저)
-  C·D 티스토리 → publishers/tistory_bridge (확장 브릿지. 캡차가 뜨면 텔레그램으로 답장 요청이
-               오고, 완료 알림·publish_queue 기록은 브릿지의 /done 이 한다)
-이미지는 아직 올리지 않는다(캡처 파일 호스팅·업로드 미구현) — 본문만 발행.
+모든 발행은 Aside 브라우저로 한다:
+  A·B 네이버   → publishers/naver_aside
+  C·D 티스토리 → publishers/tistory_aside (DKAPTCHA 는 텔레그램으로 사람에게 묻는다)
+
+사람이 보지 않으므로 check_draft() 의 품질 기준을 통과하지 못한 초안은 발행하지 않는다.
+이미지는 아직 올리지 않는다 — 본문만 발행.
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -18,90 +19,94 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from common import blog_drafts
-from common.draft_writer import preview_page, render_html, write
+from common.draft_writer import render_html
+from common.keyword_planner import info_category
 from common.logger import log
 from common.publish_queue import add_url
 
 NAVER = {"A": ("NAVER_BLOG_ID_INFO", "NAVER_CATEGORY_INFO", "NAVER_ASIDE_PROFILE_INFO"),
          "B": ("NAVER_BLOG_ID_PRICE", "NAVER_CATEGORY_PRICE", "NAVER_ASIDE_PROFILE_PRICE")}
 TISTORY_ROLE = {"C": "info", "D": "price"}
+MIN_CHARS = 1500
 
 
-def _load(draft_id: str) -> tuple[dict, dict, Path]:
+def _visible_text(draft: dict) -> str:
+    """독자가 읽는 글자 — 문단·표·단계·체크리스트·FAQ·요약·맺음말."""
+    parts = [draft.get("intro", ""), draft.get("closing", ""), *draft.get("summary_points", [])]
+    for s in draft.get("sections") or []:
+        parts += s.get("paragraphs") or []
+        parts += [c for row in s.get("table_rows") or [] for c in row]
+        parts += (s.get("steps") or []) + (s.get("checklist") or []) + [s.get("callout_text", "")]
+    for f in draft.get("faq") or []:
+        parts += [f.get("q", ""), f.get("a", "")] if isinstance(f, dict) else [str(f)]
+    return " ".join(str(p) for p in parts if p)
+
+
+def check_draft(draft: dict) -> list[str]:
+    """자동 발행 전 품질 기준. 걸린 항목 목록(비면 통과)."""
+    problems = []
+    if not draft.get("title", "").strip():
+        problems.append("제목 없음")
+    if len(draft.get("sections") or []) < 4:
+        problems.append(f"소제목 {len(draft.get('sections') or [])}개 (4개 미만)")
+    if not draft.get("sources"):
+        problems.append("출처 없음")
+    text = json.dumps(draft, ensure_ascii=False)
+    if re.search(r"확인\s*필요|\[TODO|TBD|lorem", text, re.I):
+        problems.append("미확인 표시가 남아 있음")
+    plain = _visible_text(draft)
+    if len(plain) < MIN_CHARS:
+        problems.append(f"본문 {len(plain)}자 ({MIN_CHARS}자 미만)")
+    return problems
+
+
+def _fail(draft_id: str, title: str, msg: str) -> bool:
+    blog_drafts.update(draft_id, status="failed", error=msg[:500])
+    blog_drafts.notify(f"❌ 발행 실패: {title}\n{msg[:300]}")
+    log(f"[블로그발행] 실패 {draft_id}: {msg}", "error")
+    return False
+
+
+def publish(draft_id: str, private: bool = False) -> bool:
     item = blog_drafts.get(draft_id)
     if not item:
         raise SystemExit(f"초안 없음: {draft_id}")
-    d = Path(item["dir"])
-    draft = json.loads((d / f"{item['blog']}_draft.json").read_text(encoding="utf-8"))
-    return item, draft, d
-
-
-def publish(draft_id: str, private: bool) -> None:
-    item, draft, _ = _load(draft_id)
     blog = item["blog"]
+    draft = json.loads((Path(item["dir"]) / f"{blog}_draft.json").read_text(encoding="utf-8"))
+    problems = check_draft(draft)
+    if problems:
+        return _fail(draft_id, draft["title"], "품질 기준 미달 — " + ", ".join(problems))
     body = render_html(draft, {}, blog)
+    blog_drafts.update(draft_id, status="publishing")
     if blog in NAVER:
         from publishers.naver_aside import publish as naver_publish
         id_env, cat_env, prof_env = NAVER[blog]
-        blog_id = os.getenv(id_env, "")
         profile = os.getenv(prof_env, "")
         if blog == "B" and not profile:
-            msg = "블로그 B 는 별도 Aside 프로필 필요 (NAVER_ASIDE_PROFILE_PRICE 미설정)"
-            blog_drafts.update(draft_id, status="failed", error=msg)
-            blog_drafts.notify(f"❌ 발행 실패: {draft['title']}\n{msg}")
-            log(msg, "error")
-            return
-        r = naver_publish(blog_id, draft["title"], body, draft["tags"],
-                          category=os.getenv(cat_env, ""), private=private, profile=profile)
-        if not r.success:
-            blog_drafts.update(draft_id, status="failed", error=r.message)
-            blog_drafts.notify(f"❌ 네이버 발행 실패: {draft['title']}\n{r.message[:300]}")
-            log(f"[블로그발행] 실패 {draft_id}: {r.message}", "error")
-            return
-        blog_drafts.update(draft_id, status="published", url=r.url, private=private)
-        if not private:
-            add_url(r.url, platform="naver", title=draft["title"], keyword=item["keyword"], source="blog_draft")
-        blog_drafts.notify(f"✅ 네이버 {'비공개 ' if private else ''}발행 완료\n{draft['title']}\n{r.url}")
-        log(f"[블로그발행] 완료 {r.url}", "ok")
-        return
-    from common.tistory_blogs import resolve_blog_name
-    from publishers.tistory_bridge import TistoryBridgePublisher
-    pub = TistoryBridgePublisher(resolve_blog_name(TISTORY_ROLE[blog]))
-    res = pub.post(draft["title"], body, tags=draft["tags"], category="", visibility=0 if private else 20)
-    if not res.success:
-        blog_drafts.update(draft_id, status="failed", error=res.message)
-        blog_drafts.notify(f"❌ 티스토리 대기열 등록 실패: {draft['title']}\n{res.message[:300]}")
-        log(f"[블로그발행] 티스토리 큐 실패 {draft_id}: {res.message}", "error")
-        return
-    # 실제 발행 완료·URL 기록·텔레그램 완료 알림은 브릿지 /done 이 한다
-    blog_drafts.update(draft_id, status="queued_tistory", private=private)
-    log(f"[블로그발행] 티스토리 대기열 등록 {draft_id}", "ok")
-
-
-def revise(draft_id: str) -> None:
-    item, draft, d = _load(draft_id)
-    blog = item["blog"]
-    facts = json.loads((d / "facts.json").read_text(encoding="utf-8"))
-    new = write(item["keyword"], blog, facts, feedback=item.get("reply", ""), previous=draft)
-    n = sum(1 for p in d.glob(f"{blog}_draft*.json"))
-    (d / f"{blog}_draft.v{n}.json").write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
-    (d / f"{blog}_draft.json").write_text(json.dumps(new, ensure_ascii=False, indent=1), encoding="utf-8")
-    prev = d / f"{blog}_preview.html"
-    prev.write_text(preview_page(new, blog), encoding="utf-8")
-    blog_drafts.update(draft_id, status="superseded")
-    blog_drafts.request(blog, item["keyword"], new, d, prev, meta=f"(수정 {n}회차)")
-    log(f"[블로그발행] 수정본 재요청 {draft_id}", "ok")
+            return _fail(draft_id, draft["title"], "블로그 B 는 별도 Aside 프로필 필요 (NAVER_ASIDE_PROFILE_PRICE 미설정)")
+        category = (info_category(item["keyword"]) if blog == "A" else "") or os.getenv(cat_env, "")
+        r = naver_publish(os.getenv(id_env, ""), draft["title"], body, draft["tags"],
+                          category=category, private=private, profile=profile)
+        platform = "naver"
+    else:
+        from common.tistory_blogs import resolve_blog_name
+        from publishers.tistory_aside import publish as tistory_publish
+        r = tistory_publish(resolve_blog_name(TISTORY_ROLE[blog]), draft["title"], body, draft["tags"],
+                            item_id=draft_id, private=private)
+        platform = "tistory"
+    if not r.success:
+        return _fail(draft_id, draft["title"], r.message)
+    blog_drafts.update(draft_id, status="published", url=r.url, private=private)
+    if not private:
+        add_url(r.url, platform=platform, title=draft["title"], keyword=item["keyword"], source="blog_draft")
+    blog_drafts.notify(f"✅ [{blog}] {'비공개 ' if private else ''}발행 완료\n{draft['title']}\n{r.url}")
+    log(f"[블로그발행] 발행 완료 {r.url}", "ok")
+    return True
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    cmd, did = sys.argv[1], sys.argv[2]
-    try:
-        if cmd == "publish":
-            publish(did, "--private" in sys.argv)
-        elif cmd == "revise":
-            revise(did)
-    except Exception as e:
-        blog_drafts.update(did, status="failed", error=str(e)[:300])
-        blog_drafts.notify(f"❌ 작업 실패 ({cmd}) {did}: {e}")
-        raise
+    if len(sys.argv) < 3 or sys.argv[1] != "publish":
+        raise SystemExit("usage: python -m pipelines.blog_job publish <draft_id> [--private]")
+    ok = publish(sys.argv[2], "--private" in sys.argv)
+    sys.exit(0 if ok else 1)

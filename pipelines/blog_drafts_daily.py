@@ -1,6 +1,8 @@
-"""매일 블로그 초안을 만들어 텔레그램 승인을 요청한다 (발행은 승인 후 blog_job 이 한다).
+"""매일 블로그 글을 만들어 바로 발행한다 (승인 없음 — 품질 기준은 blog_job.check_draft).
 
-생활정보 쌍(A 네이버·C 티스토리): 검색광고 API 로 고른 키워드 1개 → 조사 1회 → A·C 각각 작성.
+생활정보: 검색광고 API 로 고른 키워드 1개 → 조사 1회 → BLOG_DAILY_BLOGS 의 블로그마다
+작성 → Aside 로 발행. 기본은 A(네이버)만 — 티스토리(C)는 발행마다 DKAPTCHA 를 사람이
+풀어야 해서 완전 자동이 아니다. 'A,C' 로 넣으면 C 도 발행하고 캡차를 텔레그램으로 묻는다.
 가격형 쌍(B·D)은 가격 이력이 30일 쌓이고 가격 기반 작성기가 붙은 뒤 추가한다.
 
 이미 쓴 키워드는 data/blog_keywords_used.json 에 남겨 다시 고르지 않는다.
@@ -8,6 +10,7 @@
 스케줄: SCHEDULE_BLOG_DRAFTS
 """
 import json
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -18,6 +21,7 @@ load_dotenv()
 
 from common import blog_drafts
 from common.draft_writer import preview_page, research, write
+from pipelines.blog_job import publish
 from common.keyword_planner import plan
 from common.logger import log
 
@@ -48,7 +52,7 @@ def _pick(kind: str) -> dict | None:
     return cands[0] if cands else None
 
 
-def make_pair(keyword: str, blogs: list[str], meta: str = "") -> int:
+def make_and_publish(keyword: str, blogs: list[str]) -> int:
     slug = re.sub(r"[^0-9A-Za-z가-힣]+", "", keyword)[:20]
     out = _ROOT / "data" / "drafts" / f"{date.today():%y%m%d}_{slug}"
     out.mkdir(parents=True, exist_ok=True)
@@ -58,15 +62,14 @@ def make_pair(keyword: str, blogs: list[str], meta: str = "") -> int:
     else:
         facts = research(keyword)
         facts_path.write_text(json.dumps(facts, ensure_ascii=False, indent=1), encoding="utf-8")
-    sent = 0
+    published = 0
     for blog in blogs:
         draft = write(keyword, blog, facts)
         (out / f"{blog}_draft.json").write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
-        prev = out / f"{blog}_preview.html"
-        prev.write_text(preview_page(draft, blog), encoding="utf-8")
-        if blog_drafts.request(blog, keyword, draft, out, prev, meta=meta):
-            sent += 1
-    return sent
+        (out / f"{blog}_preview.html").write_text(preview_page(draft, blog), encoding="utf-8")
+        if publish(blog_drafts.register(blog, keyword, draft, out)):
+            published += 1
+    return published
 
 
 def run(keyword: str = "") -> None:
@@ -79,14 +82,15 @@ def run(keyword: str = "") -> None:
             return
         keyword = pick["keyword"]
         meta = f"월 {pick['total']:,}회 · 경쟁 {pick['comp']}"
-    log(f"[초안] 생활정보 쌍 — {keyword} {meta}", "step")
-    sent = make_pair(keyword, ["A", "C"], meta)
+    blogs = [b.strip() for b in os.getenv("BLOG_DAILY_BLOGS", "A").split(",") if b.strip()]
+    log(f"[블로그] 생활정보 {blogs} — {keyword} {meta}", "step")
+    done = make_and_publish(keyword, blogs)
     _mark_used(keyword, "info")
     took = (datetime.now() - started).seconds
-    if sent == 0:
-        log(f"[초안] 승인 요청 0건 — 텔레그램 전송 실패 ({took}s)", "error")
+    if done < len(blogs):
+        log(f"[블로그] 발행 {done}/{len(blogs)}건 — 실패 사유는 data/blog_drafts.json ({took}s)", "error")
     else:
-        log(f"[초안] 승인 요청 {sent}건 발송 완료 ({took}s)", "ok")
+        log(f"[블로그] 발행 완료 {done}건 ({took}s)", "ok")
 
 
 if __name__ == "__main__":

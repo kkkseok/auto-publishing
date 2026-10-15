@@ -543,14 +543,6 @@ def _telegram_long_poll_loop() -> None:
                 text = (msg.get("text") or "").strip()
                 if not text or not reply_msg_id:
                     continue
-                # 0) 블로그 초안 승인 — 파일 기반, 발행·수정은 분리 프로세스로 넘긴다
-                try:
-                    from common.blog_drafts import resolve_by_tg_message_id as resolve_blog_draft
-                    if resolve_blog_draft(reply_msg_id, text):
-                        continue
-                except Exception as e:
-                    log(f"[bridge] 블로그 초안 승인 처리 예외 (다음 라우팅으로 계속): {e}", "warn")
-
                 # 1) Threads 발행 승인 — 파일 기반이라 매칭이 확정적
                 try:
                     from common.threads_approval import resolve_by_tg_message_id

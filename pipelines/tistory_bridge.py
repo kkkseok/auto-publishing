@@ -181,6 +181,9 @@ BRIDGE_CLIENT_VALUE = "auto-publishing-ext"
 BRIDGE_EXTENSION_ID = os.getenv("TISTORY_BRIDGE_EXTENSION_ID", "").strip()
 
 
+_LAST_POLL = 0.0   # 확장의 마지막 /next 폴링 시각 (pipelines/login_check 가 healthz 로 본다)
+
+
 class BridgeHandler(BaseHTTPRequestHandler):
     """HTTP handler — JSON 응답 + extension CORS."""
 
@@ -275,6 +278,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     # ─── GET ────────────────────────────────────────────────────────────────
 
     def do_GET(self) -> None:  # noqa: N802
+        global _LAST_POLL
         path = self.path.split("?", 1)[0]
         if self._reject_foreign(path):
             return
@@ -283,9 +287,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "pending": len(list_all("pending")),
                 "blogs": _BLOGS_CACHE,
+                # 확장이 마지막으로 /next 를 물은 뒤 지난 초 — 크게 벌어지면 크롬이 꺼졌거나 확장이 멈춘 것
+                "extension_poll_age_sec": round(time.time() - _LAST_POLL) if _LAST_POLL else None,
             })
             return
         if path == "/next":
+            _LAST_POLL = time.time()
             item = claim_next()
             if item is None:
                 self._no_content(204)

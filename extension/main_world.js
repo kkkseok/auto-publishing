@@ -152,6 +152,9 @@
       for (let t = 0; t < 40; t++) {   // 업로드 최대 20초
         await sleep(500);
         if ((editor.getContent().match(/\[##_Image\|/g) || []).length > before) {
+          // 이미지는 자리 표시 앞에 들어간다 — 남은 빈 줄을 지운다
+          const left = doc.getElementById(payload.anchorId || "ap-thumb");
+          if (left && !left.querySelector("img")) left.remove();
           try { editor.save(); editor.setDirty(true); editor.fire("change"); } catch (e) {}
           return { ok: true };
         }

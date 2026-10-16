@@ -42,10 +42,25 @@ def _aside_bin() -> str:
     return os.getenv("ASIDE_CLI") or shutil.which("aside") or str(_ASIDE_DEFAULT)
 
 
+_NOTICE_MARK = "<!--affiliate-notice-->"
+
+
+def _split_notice(body_html: str) -> tuple[str, str]:
+    """대가성 고지 박스(맨 앞)와 나머지 — 썸네일은 고지 다음에 들어가야 한다."""
+    if not body_html.startswith(_NOTICE_MARK):
+        return "", body_html
+    end = body_html.index("</div>") + len("</div>")
+    return body_html[:end], body_html[end:]
+
+
 def build_script(blog_id: str, title: str, body_html: str, tags: list[str],
-                 category: str = "", private: bool = False) -> str:
-    """Aside REPL 한 줄 스크립트. 마지막에 `RESULT {json}` 한 줄을 출력한다."""
-    plain = re.sub(r"<[^>]+>", "", body_html)
+                 category: str = "", private: bool = False, image_b64: str = "") -> str:
+    """Aside REPL 한 줄 스크립트. 마지막에 `RESULT {json}` 한 줄을 출력한다.
+
+    image_b64(PNG)가 있으면 편집기에 파일로 붙여넣는다 — SmartEditor 가 네이버 서버
+    (blogfiles.pstatic.net)에 올리고 대표 이미지가 된다. 순서: 고지 → 썸네일 → 본문.
+    """
+    notice, rest = _split_notice(body_html) if image_b64 else ("", body_html)
     radio = "open_private" if private else "open_public"
     j = lambda v: json.dumps(v, ensure_ascii=False)
     steps = [
@@ -58,12 +73,24 @@ def build_script(blog_id: str, title: str, body_html: str, tags: list[str],
         "await page.click('.se-documentTitle .se-text-paragraph'); await sleep(200);",
         f"await page.keyboard.type({j(title)}, {{delay: 20}}); await sleep(300);",
         "await page.locator('.se-component.se-text .se-text-paragraph').first().click(); await sleep(300);",
-        # 편집기 입력은 숨은 iframe 이 받는다 — paste 이벤트를 그 문서에 보낸다
-        "out.paste=await page.evaluate(([H,P])=>{const fr=document.activeElement; "
+        # 편집기 입력은 숨은 iframe 이 받는다 — paste 이벤트를 그 문서에 보낸다.
+        # H 가 있으면 HTML, F(base64 PNG)가 있으면 파일을 붙여넣는다.
+        "const paste=(H,F)=>page.evaluate(([H,F])=>{const fr=document.activeElement; "
         "const doc=(fr&&fr.contentDocument)?fr.contentDocument:document; const el=doc.activeElement||doc.body; "
-        "const dt=new DataTransfer(); dt.setData('text/html',H); dt.setData('text/plain',P); "
-        "return !el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));}, "
-        f"[{j(body_html)}, {j(plain)}]); await sleep(3000);",
+        "const dt=new DataTransfer(); if(F){const b=atob(F); const u=new Uint8Array(b.length); "
+        "for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); dt.items.add(new File([u],'thumbnail.png',{type:'image/png'}));} "
+        "else {dt.setData('text/html',H); dt.setData('text/plain',H.replace(/<[^>]+>/g,''));} "
+        "return !el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));}, [H,F]);",
+        "const lastText=async()=>{await page.locator('.se-component.se-text .se-text-paragraph').last().click(); await sleep(300);};",
+    ]
+    if notice:
+        steps.append(f"await paste({j(notice)}, ''); await sleep(1500); await lastText();")
+    if image_b64:
+        steps.append(f"out.image=await paste('', {j(image_b64)}); await sleep(8000); "
+                     "out.images=await page.evaluate(()=>[...document.querySelectorAll('.se-component.se-image img')]"
+                     ".filter(i=>i.src.includes('pstatic.net')).length); await lastText();")
+    steps += [
+        f"out.paste=await paste({j(rest)}, ''); await sleep(3000);",
         "out.tables=await page.evaluate(()=>document.querySelectorAll('.se-component.se-table').length);",
         "await page.locator('button[class*=publish_btn]').first().click(); await sleep(2000);",
     ]
@@ -103,8 +130,8 @@ def build_script(blog_id: str, title: str, body_html: str, tags: list[str],
 
 def publish(blog_id: str, title: str, body_html: str, tags: list[str], *,
             category: str = "", private: bool = False, profile: str = "", account: str = "",
-            timeout: int = 200) -> NaverPublishResult:
-    script = build_script(blog_id, title, body_html, tags, category, private)
+            image_b64: str = "", timeout: int = 240) -> NaverPublishResult:
+    script = build_script(blog_id, title, body_html, tags, category, private, image_b64)
     cmd = ([_aside_bin(), "repl"] + (["--account", account] if account else [])
            + (["--profile", profile] if profile else []))
     for attempt in range(2):

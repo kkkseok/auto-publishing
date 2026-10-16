@@ -132,6 +132,32 @@
       };
       return { ok: true, info: out };
     }
+    if (cmd === "paste-image") {
+      // 자리 표시(<p id=anchorId>)에 커서를 두고 PNG 파일을 paste — 에디터가 업로드한다
+      const editor = window.tinymce && window.tinymce.activeEditor;
+      if (!editor) return { ok: false, error: "tinymce.activeEditor 없음" };
+      const doc = editor.getDoc();
+      const anchor = doc.getElementById(payload.anchorId || "ap-thumb");
+      if (!anchor) return { ok: false, error: "썸네일 자리 표시 없음" };
+      editor.selection.select(anchor, true);
+      editor.selection.collapse(true);
+      editor.focus();
+      const before = (editor.getContent().match(/\[##_Image\|/g) || []).length;
+      const bin = atob(payload.b64 || "");
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], "thumbnail.png", { type: "image/png" }));
+      doc.body.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      for (let t = 0; t < 40; t++) {   // 업로드 최대 20초
+        await sleep(500);
+        if ((editor.getContent().match(/\[##_Image\|/g) || []).length > before) {
+          try { editor.save(); editor.setDirty(true); editor.fire("change"); } catch (e) {}
+          return { ok: true };
+        }
+      }
+      return { ok: false, error: "업로드 시간 초과" };
+    }
     if (cmd === "get-content") {
       if (!window.tinymce || !window.tinymce.activeEditor) {
         return { ok: false, error: "tinymce.activeEditor 없음" };

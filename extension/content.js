@@ -331,6 +331,17 @@
     }
     console.log("[ap] ✓ 본문 setContent (길이=" + (item.content || "").length + ")");
 
+    // 3.5) 대표 썸네일 — 본문의 <p id="ap-thumb"> 자리에 PNG 파일을 붙여넣으면 티스토리가
+    //      카카오 CDN 에 올리고 [##_Image|…_##] 로 바꾼다. 실패해도 글은 발행한다 (경고만).
+    if (item.thumbnail_b64) {
+      const img = await mw("paste-image", { b64: item.thumbnail_b64, anchorId: "ap-thumb" });
+      if (img?.ok) {
+        console.log("[ap] ✓ 썸네일 업로드");
+      } else {
+        console.warn("[ap] 썸네일 업로드 실패 — 이미지 없이 진행:", img?.error);
+      }
+    }
+
     // 4) 태그
     if (item.tags && item.tags.length) {
       const tagInput = document.querySelector("#tagText");

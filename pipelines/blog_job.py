@@ -9,8 +9,9 @@
 
 사람이 보지 않으므로 check_draft() 의 품질 기준을 통과하지 못한 초안은 발행하지 않는다.
 가격형(B·D)은 초안 폴더의 <블로그>_products.json 으로 쿠팡 상품표를 붙인다.
-이미지는 아직 올리지 않는다 — 본문만 발행.
+대표 썸네일(common/thumbnail)을 만들어 네이버는 Aside 가, 티스토리는 확장이 편집기에 붙여넣어 올린다.
 """
+import base64
 import json
 import os
 import re
@@ -24,6 +25,7 @@ from common import affiliate_notice, blog_drafts
 from common.draft_writer import render_html
 from common.keyword_planner import category_for
 from common.logger import log
+from publishers.naver_aside import _split_notice
 from common.publish_queue import add_url
 
 NAVER = {"A": ("NAVER_BLOG_ID_INFO", "NAVER_CATEGORY_INFO", "NAVER_ASIDE_ACCOUNT_INFO"),
@@ -63,6 +65,17 @@ def check_draft(draft: dict) -> list[str]:
     return problems
 
 
+def _thumbnail(draft: dict, blog: str, item: dict) -> str:
+    """대표 썸네일 PNG(base64). 만들지 못하면 '' — 글은 이미지 없이 발행하고 경고만 남긴다."""
+    try:
+        from common.thumbnail import render
+        png = render(draft, blog, Path(item["dir"]), keyword=item["keyword"])
+        return base64.b64encode(png.read_bytes()).decode()
+    except Exception as e:
+        log(f"[블로그발행] 썸네일 생성 실패 — 이미지 없이 발행: {e}", "warn")
+        return ""
+
+
 def _fail(draft_id: str, title: str, msg: str) -> bool:
     blog_drafts.update(draft_id, status="failed", error=msg[:500])
     blog_drafts.notify(f"❌ 발행 실패: {title}\n{msg[:300]}")
@@ -88,6 +101,7 @@ def publish(draft_id: str, private: bool = False) -> bool:
     if products:
         body = affiliate_notice.prepend_html(body, affiliate_notice.COUPANG)
     link = products[0]["affiliate_url"] if products else ""
+    thumb = _thumbnail(draft, blog, item)
     source = "coupang" if products else "blog_draft"
     blog_drafts.update(draft_id, status="publishing")
     if blog in NAVER:
@@ -98,12 +112,16 @@ def publish(draft_id: str, private: bool = False) -> bool:
             return _fail(draft_id, draft["title"], "블로그 B 는 별도 Aside 계정 필요 (NAVER_ASIDE_ACCOUNT_PRICE 미설정)")
         category = category_for(blog, item["keyword"]) or os.getenv(cat_env, "")
         r = naver_publish(os.getenv(id_env, ""), draft["title"], body, draft["tags"],
-                          category=category, private=private, account=account)
+                          category=category, private=private, account=account, image_b64=thumb)
     else:
         from common.tistory_blogs import resolve_blog_name
         from publishers.tistory_bridge import TistoryBridgePublisher
         pub = TistoryBridgePublisher(resolve_blog_name(TISTORY_ROLE[blog]))
+        if thumb:   # 확장이 이 자리에 썸네일을 붙여넣는다 — 고지 박스 다음, 본문 앞
+            notice, rest = _split_notice(body)
+            body = notice + '<p id="ap-thumb">&nbsp;</p>' + rest
         res = pub.post(draft["title"], body, tags=draft["tags"], category=category_for(blog, item["keyword"]),
+                       thumbnail_b64=thumb,
                        visibility=0 if private else 20,
                        source=source, keyword=item["keyword"], affiliate_url=link)
         if not res.success:

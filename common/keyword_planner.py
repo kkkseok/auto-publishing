@@ -96,6 +96,12 @@ def score(row: dict, kind: str) -> float:
     return round(math.log10(total) * COMP_WEIGHT.get(row["comp"], 0.5) * intent, 3)
 
 
+def seed_of(keyword: str, kind: str) -> str:
+    """키워드가 속한 씨앗(예: '에너지바우처대상' → '에너지바우처'). 없으면 ''."""
+    k = re.sub(r"\s+", "", keyword)
+    return next((seed for group in SEEDS[kind] for seed in group if seed in k), "")
+
+
 def plan(kind: str, used: set[str] | None = None, top: int = 30) -> list[dict]:
     """유형(info|price)별 상위 후보. used 에 있는 키워드는 뺀다."""
     used = {re.sub(r"\s+", "", u) for u in (used or set())}

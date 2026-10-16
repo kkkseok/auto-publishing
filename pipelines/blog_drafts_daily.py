@@ -15,7 +15,7 @@ import json
 import os
 import re
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,7 +24,7 @@ load_dotenv()
 from common import blog_drafts, price_writer
 from common.draft_writer import preview_page, research, write
 from pipelines.blog_job import NAVER, publish
-from common.keyword_planner import plan
+from common.keyword_planner import plan, seed_of
 from common.logger import log
 
 SCHEDULE = {
@@ -49,8 +49,20 @@ def _mark_used(keyword: str, kind: str) -> None:
     USED.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+SEED_COOLDOWN_DAYS = 30
+
+
 def _pick(kind: str) -> dict | None:
-    cands = plan(kind, used=set(_used()), top=10)
+    """가장 점수 높은 키워드 — 최근 30일 안에 같은 씨앗으로 쓴 주제는 건너뛴다.
+
+    키워드 글자만 비교하면 '에너지바우처 신청' 다음 날 '에너지바우처대상'을 골라 같은 블로그에
+    거의 같은 글이 두 개 생겼다(10-16). 같은 블로그의 비슷한 글은 검색에서 서로 경쟁한다.
+    """
+    used = _used()
+    since = (date.today() - timedelta(days=SEED_COOLDOWN_DAYS)).isoformat()
+    recent = {seed_of(k, kind) for k, v in used.items() if v.get("kind") == kind and v.get("day", "") >= since}
+    recent.discard("")
+    cands = [c for c in plan(kind, used=set(used), top=40) if seed_of(c["keyword"], kind) not in recent]
     return cands[0] if cands else None
 
 

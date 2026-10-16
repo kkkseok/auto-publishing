@@ -64,3 +64,10 @@ def test_home_subject_for_tistory():
     assert home_subject_for("D", "무선이어폰 추천") == "IT 제품리뷰"
     assert home_subject_for("C", "연말정산 환급") == "경제"
     assert home_subject_for("C", "모르는 주제") == "생활정보"
+
+
+def test_seed_of_groups_spacing_variants():
+    from common.keyword_planner import seed_of
+    assert seed_of("에너지바우처대상", "info") == seed_of("에너지바우처 신청", "info") == "에너지바우처"
+    assert seed_of("로봇청소기 추천", "price") == "로봇청소기"
+    assert seed_of("무관한 말", "info") == ""

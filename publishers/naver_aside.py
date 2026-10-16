@@ -24,6 +24,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from common.aside_repl import NOT_RUNNING, start_aside
 from common.logger import log
 
 _ASIDE_DEFAULT = Path(os.getenv("LOCALAPPDATA", "")) / "Aside" / "CLI" / "current" / "aside.exe"
@@ -106,13 +107,19 @@ def publish(blog_id: str, title: str, body_html: str, tags: list[str], *,
     script = build_script(blog_id, title, body_html, tags, category, private)
     cmd = ([_aside_bin(), "repl"] + (["--account", account] if account else [])
            + (["--profile", profile] if profile else []))
-    try:
-        proc = subprocess.run(cmd, input=(script + "\nexit\n").encode("utf-8"),
-                              capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return NaverPublishResult(False, message="aside repl 시간 초과")
-    except FileNotFoundError:
-        return NaverPublishResult(False, message=f"aside CLI 없음: {cmd[0]}")
+    for attempt in range(2):
+        try:
+            proc = subprocess.run(cmd, input=(script + "\nexit\n").encode("utf-8"),
+                                  capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return NaverPublishResult(False, message="aside repl 시간 초과")
+        except FileNotFoundError:
+            return NaverPublishResult(False, message=f"aside CLI 없음: {cmd[0]}")
+        # 사용자가 Aside 창을 닫아 두었으면 켜고 한 번 더 — 실패면 아래에서 그대로 드러난다
+        if attempt == 0 and NOT_RUNNING.encode() in proc.stdout + proc.stderr and start_aside():
+            log("[네이버/Aside] Aside 가 꺼져 있어 실행 후 재시도", "warn")
+            continue
+        break
     text = re.sub(r"\x1b\[[0-9;]*m", "", proc.stdout.decode("utf-8", "replace"))
     m = re.search(r"RESULT (\{.*\})", text)
     if not m:

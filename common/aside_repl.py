@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 _ASIDE_DEFAULT = Path(os.getenv("LOCALAPPDATA", "")) / "Aside" / "CLI" / "current" / "aside.exe"
@@ -31,6 +32,25 @@ def aside_bin() -> str:
     return os.getenv("ASIDE_CLI") or shutil.which("aside") or str(_ASIDE_DEFAULT)
 
 
+_ASIDE_APP = Path(os.getenv("ASIDE_APP", r"C:\Program Files\Aside\Application\Aside.exe"))
+NOT_RUNNING = "Aside isn't running"
+
+
+def start_aside(wait_sec: int = 15) -> bool:
+    """Aside 브라우저가 꺼져 있으면 최소화로 켠다 — CLI 는 실행 중인 브라우저(데몬)에 붙기 때문.
+
+    사용자가 창을 닫으면 06:30 네이버 발행·22:00 색인 제출이 "Aside isn't running" 으로
+    실패했다(10-16). 켤 수 없으면 False.
+    """
+    if not _ASIDE_APP.exists():
+        return False
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([str(_ASIDE_APP)], creationflags=flags, close_fds=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(wait_sec)
+    return True
+
+
 class AsideRepl:
     def __init__(self, profile: str = "", account: str = ""):
         self.cmd = ([aside_bin(), "repl"] + (["--account", account] if account else [])
@@ -40,6 +60,15 @@ class AsideRepl:
         self.session_dir = ""
 
     def __enter__(self) -> "AsideRepl":
+        try:
+            return self._open()
+        except AsideError as e:
+            if NOT_RUNNING not in str(e) or not start_aside():
+                raise
+            self.lines = queue.Queue()
+            return self._open()
+
+    def _open(self) -> "AsideRepl":
         try:
             self.proc = subprocess.Popen(self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT)

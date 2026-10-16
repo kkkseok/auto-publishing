@@ -109,7 +109,7 @@ def publish(draft_id: str, private: bool = False) -> bool:
         if not res.success:
             return _fail(draft_id, draft["title"], f"티스토리 대기열 등록 실패: {res.message}")
         # 실제 발행·URL 기록·완료 알림은 확장이 끝낸 뒤 브릿지 /done 이 한다
-        blog_drafts.update(draft_id, status="queued_tistory", private=private)
+        blog_drafts.update(draft_id, status="queued_tistory", private=private, queue_id=res.post_id)
         log(f"[블로그발행] 티스토리 대기열 등록 {draft_id} — 확장이 발행", "ok")
         return True
     if not r.success:

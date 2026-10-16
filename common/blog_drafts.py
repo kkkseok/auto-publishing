@@ -56,6 +56,11 @@ def ready(blogs: tuple[str, ...]) -> list[str]:
     return sorted(ids, key=lambda k: data[k].get("created", ""))
 
 
+def queued(blogs: tuple[str, ...]) -> list[tuple[str, dict]]:
+    """확장 대기열로 보낸(status=queued_tistory) 초안 — 결과 반영 대상."""
+    return [(k, v) for k, v in _load().items() if v.get("status") == "queued_tistory" and v.get("blog") in blogs]
+
+
 def get(draft_id: str) -> dict | None:
     return _load().get(draft_id)
 

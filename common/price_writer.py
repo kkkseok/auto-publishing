@@ -35,7 +35,7 @@ def _product_id(url: str) -> int | None:
 
 def fetch_products(keyword: str, count: int = 8) -> list[dict]:
     """쿠팡 검색 상위 상품 + 가격 이력 통계. affiliate_url 은 블로그별로 for_blog() 에서 붙인다."""
-    products = _api_search(keyword, count)
+    products = _api_search(keyword, count, price_band=False)
     when = datetime.now().strftime("%Y.%m.%d %H:%M")
     with closing(price_history.connect()) as conn:
         for p in products:

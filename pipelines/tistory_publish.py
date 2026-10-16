@@ -10,7 +10,7 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 
-from common import blog_drafts
+from common import blog_drafts, tistory_queue
 from common.logger import log
 from pipelines.blog_job import TISTORY_ROLE, publish
 
@@ -20,7 +20,30 @@ SCHEDULE = {
 }
 
 
+MAX_TRIES = 3
+
+
+def reconcile() -> None:
+    """확장이 처리한 결과를 초안 기록에 반영 — 성공은 주소를, 실패는 재시도 대기(ready)로."""
+    for did, item in blog_drafts.queued(tuple(TISTORY_ROLE)):
+        q = tistory_queue.get(item.get("queue_id", "")) if item.get("queue_id") else None
+        if not q:
+            continue
+        if q["status"] == "done":
+            blog_drafts.update(did, status="published", url=q.get("result_url", ""))
+        elif q["status"] == "failed":
+            tries = item.get("tries", 0) + 1
+            if tries < MAX_TRIES:
+                blog_drafts.update(did, status="ready", tries=tries, error=q.get("error", "")[:300])
+                log(f"[티스토리] 실패 → 다음 일정에 재시도 ({tries}/{MAX_TRIES}) {did}: {q.get('error', '')[:120]}", "warn")
+            else:
+                blog_drafts.update(did, status="failed", tries=tries, error=q.get("error", "")[:300])
+                blog_drafts.notify(f"❌ 티스토리 발행 {MAX_TRIES}회 실패: {item['title']}\n{q.get('error', '')[:200]}")
+                log(f"[티스토리] {MAX_TRIES}회 실패 — 포기 {did}", "error")
+
+
 def run() -> None:
+    reconcile()
     ids = blog_drafts.ready(tuple(TISTORY_ROLE))
     if not ids:
         log("[티스토리] 발행 대기 초안 없음", "info")

@@ -466,8 +466,12 @@ def _build_api_product(item: dict, channel_id: str, theme: str = "",
 
 
 def _api_search(keyword: str, count: int = 10,
-                channel_id: str = "") -> list:
-    """쿠팡 파트너스 API 검색 (ACCESS_KEY/SECRET_KEY 필요)."""
+                channel_id: str = "", price_band: bool = True) -> list:
+    """쿠팡 파트너스 API 검색 (ACCESS_KEY/SECRET_KEY 필요).
+
+    price_band=False 면 가격밴드 필터를 끈다 — 구매 가이드(가격형 블로그)는 카테고리
+    자체가 저가(샴푸·물티슈)이거나 고가(노트북)일 수 있어 밴드로 거르면 상품이 3개만 남는다.
+    """
     if not ACCESS_KEY or not SECRET_KEY:
         return []
 
@@ -493,7 +497,7 @@ def _api_search(keyword: str, count: int = 10,
             return []
         items = res.json().get("data", {}).get("productData", [])
         # 가격밴드 필터 — 단, 전부 걸리면 미발행 방지를 위해 폴백(필터 미적용).
-        priced = [it for it in items if _price_ok(it.get("productPrice"))]
+        priced = [it for it in items if not price_band or _price_ok(it.get("productPrice"))]
         if not priced and items:
             log("가격밴드로 전부 제외 → 필터 미적용 폴백", "warn")
             priced = items

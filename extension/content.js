@@ -105,9 +105,16 @@
   }
 
   // ─── DKAPTCHA 자동 처리 (텔레그램 relay) ─────────────────────────────────
-  async function handleCaptchaIfPresent(itemId) {
-    // 공개 발행 클릭 후 위젯 등장까지 최대 8초 대기
-    const deadlineDetect = Date.now() + 8000;
+  function captchaVisible() {
+    return !!(document.querySelector('[class*="dkaptcha"]') ||
+      document.querySelector('iframe[src*="dkaptcha"]') ||
+      document.querySelector('iframe[src*="captcha"]') ||
+      document.querySelector('input[placeholder*="정답"]'));
+  }
+
+  async function handleCaptchaIfPresent(itemId, detectMs = 8000) {
+    // 공개 발행 클릭 후 위젯 등장까지 detectMs 대기 (늦게 뜨는 경우는 8) 대기 루프가 다시 부른다)
+    const deadlineDetect = Date.now() + detectMs;
     let captchaContainer = null;
     while (Date.now() < deadlineDetect) {
       // DKAPTCHA 가 자주 쓰는 selector 후보들
@@ -423,15 +430,28 @@
 
     // 7.5) DKAPTCHA 자동 처리 — 텔레그램 캡차 relay
     // 클릭 후 위젯 등장 대기 → 탭 캡처 → 텔레그램 → 본인 답글 → 자동 입력
-    await handleCaptchaIfPresent(item.id);
+    const firstRelay = await handleCaptchaIfPresent(item.id);
+    // 방금 답을 제출한 캡차가 사라지기 전에 다시 잡지 않도록 잠시 간격을 둔다
+    let lastCaptchaAt = firstRelay ? Date.now() : 0;
 
     // 8) URL 이 글 ID / 글 목록으로 이동하면 발행 완료 — done 보고는 하지 않는다.
     //    성공 귀속은 background 의 webNavigation 핸들러가 글 목록 제목 대조 후
     //    단독 수행 (여기서 직접 publish-done 을 보내면 검증을 우회하게 됨).
+    //    캡차가 8초 뒤에 늦게 뜨는 경우가 있다 (10-16 kkkseok: 캡차 미감지 → 5분 timeout).
+    //    기다리는 동안에도 캡차를 계속 보고, 뜨면 텔레그램 relay 후 대기 시간을 다시 센다.
     const blogHost = location.host;
-    const startWait = Date.now();
+    let startWait = Date.now();
     const WAIT_MAX = 5 * 60_000;
+    let captchaRounds = 0;
     while (Date.now() - startWait < WAIT_MAX) {
+      if (captchaVisible() && captchaRounds < 3 && Date.now() - lastCaptchaAt > 10_000) {
+        captchaRounds += 1;
+        console.log("[ap] 대기 중 DKAPTCHA 감지 — relay " + captchaRounds + "회차");
+        await handleCaptchaIfPresent(item.id, 3000);
+        lastCaptchaAt = Date.now();
+        startWait = Date.now();
+        continue;
+      }
       const u = location.href;
       const m = u.match(new RegExp(`https?://${blogHost.replace(/\./g, "\\.")}/(\\d+)`));
       if (m && !u.includes("/manage")) {

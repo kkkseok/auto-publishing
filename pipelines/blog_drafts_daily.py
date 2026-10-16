@@ -102,8 +102,12 @@ def make_price_posts(keyword: str, blogs: list[str]) -> int:
     return done
 
 
-def run_price(keyword: str = "") -> tuple[int, int]:
-    blogs = [b.strip() for b in os.getenv("BLOG_DAILY_PRICE_BLOGS", "").split(",") if b.strip()]
+def _blogs(env: str, default: str = "") -> list[str]:
+    return [b.strip() for b in os.getenv(env, default).split(",") if b.strip()]
+
+
+def run_price(keyword: str = "", blogs: list[str] | None = None) -> tuple[int, int]:
+    blogs = _blogs("BLOG_DAILY_PRICE_BLOGS") if blogs is None else blogs
     if not blogs:
         return 0, 0
     if not keyword:
@@ -118,8 +122,8 @@ def run_price(keyword: str = "") -> tuple[int, int]:
     return done, len(blogs)
 
 
-def run_info(keyword: str = "") -> tuple[int, int]:
-    blogs = [b.strip() for b in os.getenv("BLOG_DAILY_BLOGS", "A").split(",") if b.strip()]
+def run_info(keyword: str = "", blogs: list[str] | None = None) -> tuple[int, int]:
+    blogs = _blogs("BLOG_DAILY_BLOGS", "A") if blogs is None else blogs
     if not blogs:
         return 0, 0
     meta = ""
@@ -136,14 +140,16 @@ def run_info(keyword: str = "") -> tuple[int, int]:
     return done, len(blogs)
 
 
-def run(info_keyword: str = "", price_keyword: str = "", only: str = "") -> None:
+def run(info_keyword: str = "", price_keyword: str = "", only: str = "",
+        info_blogs: list[str] | None = None, price_blogs: list[str] | None = None) -> None:
     started = datetime.now()
     done = want = 0
-    for kind, fn, kw in (("info", run_info, info_keyword), ("price", run_price, price_keyword)):
+    for kind, fn, kw, blogs in (("info", run_info, info_keyword, info_blogs),
+                                 ("price", run_price, price_keyword, price_blogs)):
         if only and only != kind:
             continue
         try:
-            d, w = fn(kw)
+            d, w = fn(kw, blogs)
         except Exception as e:   # 한쪽이 죽어도 다른 쪽은 돌린다 — 실패는 error 로 남긴다
             log(f"[블로그] {kind} 실패: {e}", "error")
             d, w = 0, 1

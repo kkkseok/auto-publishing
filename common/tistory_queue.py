@@ -137,7 +137,7 @@ def enqueue(*, blog_name: str, title: str, content: str,
             tags: Optional[list[str]] = None, category: str = "",
             visibility: int = 20, image_url: str = "", image_html: str = "",
             source: str = "", keyword: str = "", affiliate_url: str = "",
-            thumbnail_b64: str = "") -> str:
+            thumbnail_b64: str = "", home_subject: str = "") -> str:
     """발행 대기열에 항목 추가. id 반환.
 
     thumbnail_b64: 대표 썸네일 PNG — 확장이 본문의 <p id="ap-thumb"> 자리에 붙여넣어 업로드한다.
@@ -157,6 +157,7 @@ def enqueue(*, blog_name: str, title: str, content: str,
         "keyword":        keyword,
         "affiliate_url":  affiliate_url,
         "thumbnail_b64":  thumbnail_b64,
+        "home_subject":   home_subject,
         "queued_at":      datetime.now().isoformat(timespec="seconds"),
         "status":         "pending",
         "claimed_at":     None,
@@ -293,4 +294,5 @@ def to_extension_payload(item: dict) -> dict:
         "category":   item.get("category", ""),
         "visibility": item.get("visibility", 20),
         "thumbnail_b64": item.get("thumbnail_b64", ""),
+        "home_subject": item.get("home_subject", ""),
     }

@@ -412,6 +412,29 @@
     }
     await new Promise((r) => setTimeout(r, 400));
 
+    // 6.5) 홈주제 — 공개 글에서만 버튼이 켜진다. 발행 창의 '선택 안 함' 버튼 → mce 메뉴의
+    //      "- 생활정보" 같은 항목. 못 찾으면 '선택 안 함'으로 두고 진행한다.
+    if (item.home_subject && v === 20) {
+      const layer = document.querySelector(".inner_editor_layer");
+      const btn = layer && [...layer.querySelectorAll("button.select_btn")]
+        .find((b) => /선택 안 함/.test(b.innerText) && !b.disabled);
+      if (btn) {
+        btn.click();
+        await new Promise((r) => setTimeout(r, 700));
+        const opt = [...document.querySelectorAll(".mce-menu-item")]
+          .filter((e) => e.offsetParent)
+          .find((e) => e.innerText.trim().replace(/^-\s*/, "") === item.home_subject);
+        if (opt) {
+          opt.click();
+          await new Promise((r) => setTimeout(r, 400));
+          console.log("[ap] ✓ 홈주제:", (btn.innerText || "").trim());
+        } else {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          console.warn("[ap] 홈주제 미발견 — 선택 안 함으로 발행:", item.home_subject);
+        }
+      }
+    }
+
     // 7) 공개 발행 클릭 → DKAPTCHA 등장 가능
     // 비공개 전용 버튼(#save-private-btn)은 2026-10 에디터에 없다 — 비공개 라디오를
     // 고르면 #publish-btn 이 그대로 발행 버튼 역할을 하는 것으로 보인다. 다만 라디오

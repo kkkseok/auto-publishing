@@ -63,6 +63,7 @@ class TistoryBridgePublisher(Publisher):
             keyword=str(kwargs.get("keyword", "")),
             affiliate_url=str(kwargs.get("affiliate_url", "")),
             thumbnail_b64=str(kwargs.get("thumbnail_b64", "")),
+            home_subject=str(kwargs.get("home_subject", "")),
         )
         log(f"[tistory_bridge:{self.blog_name}] 큐 등록: {title[:40]} id={item_id[:8]}", "step")
 

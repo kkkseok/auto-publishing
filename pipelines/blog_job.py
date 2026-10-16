@@ -23,7 +23,7 @@ load_dotenv()
 
 from common import affiliate_notice, blog_drafts
 from common.draft_writer import render_html
-from common.keyword_planner import category_for
+from common.keyword_planner import category_for, home_subject_for
 from common.logger import log
 from publishers.naver_aside import _split_notice
 from common.publish_queue import add_url
@@ -121,7 +121,7 @@ def publish(draft_id: str, private: bool = False) -> bool:
             notice, rest = _split_notice(body)
             body = notice + '<p id="ap-thumb">&nbsp;</p>' + rest
         res = pub.post(draft["title"], body, tags=draft["tags"], category=category_for(blog, item["keyword"]),
-                       thumbnail_b64=thumb,
+                       thumbnail_b64=thumb, home_subject=home_subject_for(blog, item["keyword"]),
                        visibility=0 if private else 20,
                        source=source, keyword=item["keyword"], affiliate_url=link)
         if not res.success:

@@ -59,6 +59,20 @@ def info_category(keyword: str) -> str:
     return _match(keyword, INFO_CATEGORIES)
 
 
+# 티스토리 홈주제(발행 창 '홈주제' 목록의 이름 그대로). 쇼핑 항목이 없어 가장 가까운 것으로.
+HOME_SUBJECT = {
+    "지원금·복지": "생활정보", "세금·환급": "경제", "생활요금·할인": "생활정보",
+    "취업·청년": "경영·직장", "건강·보험": "건강",
+    "생활가전": "생활정보", "디지털": "IT 제품리뷰", "출산·육아": "육아",
+    "뷰티·건강": "패션·뷰티", "스포츠·레저": "스포츠일반", "반려동물": "반려동물",
+}
+
+
+def home_subject_for(blog: str, keyword: str) -> str:
+    """티스토리(C·D) 글의 홈주제. 카테고리를 못 고르면 '생활정보'."""
+    return HOME_SUBJECT.get(category_for(blog, keyword), "생활정보")
+
+
 def category_for(blog: str, keyword: str) -> str:
     """블로그(A·B·C·D)와 키워드로 카테고리 이름. 못 고르면 ''(카테고리 없음)."""
     return _match(keyword, PRICE_CATEGORIES if blog in ("B", "D") else INFO_CATEGORIES)

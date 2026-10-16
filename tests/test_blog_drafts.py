@@ -57,3 +57,10 @@ def test_category_for_each_blog():
     assert category_for("D", "고양이모래 추천") == "반려동물"
     assert category_for("C", "실업급여 신청") == "취업·청년"
     assert category_for("D", "에너지바우처") == ""
+
+
+def test_home_subject_for_tistory():
+    from common.keyword_planner import home_subject_for
+    assert home_subject_for("D", "무선이어폰 추천") == "IT 제품리뷰"
+    assert home_subject_for("C", "연말정산 환급") == "경제"
+    assert home_subject_for("C", "모르는 주제") == "생활정보"

@@ -228,7 +228,7 @@ def notify_login_required(platform: str, instructions: str = "",
     예: 세션 만료 → 자동 로그인 실패 → 가드 발동.
     같은 platform 으로 throttle_hours 시간 내 재호출 시 스팸 방지로 skip.
 
-    instructions 예: "python tools/naver_searchadvisor_login.py"
+    instructions 예: "Aside 브라우저에서 서치어드바이저 로그인 확인"
 
     reason 은 로그인 만료가 아닌 장애(예: Meta 가 앱의 API 접근을 끈 경우)에서
     기본 문구가 오해를 부르므로 호출자가 덮어쓸 수 있게 열어둔 것이다.

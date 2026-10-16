@@ -92,14 +92,9 @@ def test_google(url: str) -> str:
 def test_naver(url: str) -> str:
     print()
     print("=== Naver Search Advisor ===")
-    if not (os.getenv("NAVER_SEARCHADVISOR_USERNAME") and
-             os.getenv("NAVER_SEARCHADVISOR_PASSWORD")):
-        print("  ✗ NAVER_SEARCHADVISOR_USERNAME / PASSWORD 미설정")
-        return "skip"
-
-    print(f"  USERNAME: {os.getenv('NAVER_SEARCHADVISOR_USERNAME')}")
-    print(f"  URL     : {url}")
-    print("  → 색인 요청 중... (Playwright 브라우저 첫 실행 시 시간 걸림)")
+    print(f"  Aside 계정: {os.getenv('NAVER_INDEX_ASIDE_ACCOUNT') or '기본'}")
+    print(f"  URL       : {url}")
+    print("  → 색인 요청 중... (Aside 브라우저에서 서치어드바이저 로그인 상태여야 함)")
 
     try:
         from common.indexing_naver import submit_urls

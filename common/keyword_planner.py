@@ -132,5 +132,17 @@ def plan(kind: str, used: set[str] | None = None, top: int = 30) -> list[dict]:
                 continue
             s = score(r, kind)
             if s > 0:
-                seen[k] = dict(r, score=s)
+                fb = feedback(kind, k)
+                seen[k] = dict(r, score=round(s * fb, 3), base_score=s, feedback=fb)
     return sorted(seen.values(), key=lambda r: r["score"], reverse=True)[:top]
+
+
+def feedback(kind: str, keyword: str) -> float:
+    """유입 데이터 가중치 — 읽힌 씨앗·카테고리는 올리고, 안 읽힌 것은 내린다 (common/content_insights).
+
+    데이터가 없으면 1.0 이라 검색광고 점수만으로 고르던 기존 동작과 같다.
+    """
+    from common import content_insights   # content_insights 가 이 모듈을 쓰므로 여기서 읽는다
+    category = _match(keyword, PRICE_CATEGORIES if kind == "price" else INFO_CATEGORIES)
+    return round(content_insights.topic_multiplier(kind, seed_of(keyword, kind), category)
+                 * content_insights.opportunity_bonus(kind, keyword), 3)

@@ -195,6 +195,14 @@ def research(keyword: str, client: anthropic.Anthropic | None = None, system: st
             "usage": resp.usage.to_dict(), "billing": "api"}
 
 
+def _performance_hints(blog: str, keyword: str) -> str:
+    """common/content_insights 의 유입 분석 — 잘 된 제목, 실제 검색어. 데이터가 없으면 ''."""
+    from common import content_insights
+    from common.keyword_planner import category_for, seed_of
+    kind = "price" if blog in ("B", "D") else "info"
+    return content_insights.writer_hints(blog, keyword, seed_of(keyword, kind), category_for(blog, keyword))
+
+
 def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | None = None,
           feedback: str = "", previous: dict | None = None) -> dict:
     """사실 시트 → 블로그 양식 JSON 초안. feedback·previous 가 있으면 이전 초안을 그 지시대로 고친다."""
@@ -202,6 +210,10 @@ def write(keyword: str, blog: str, facts: dict, client: anthropic.Anthropic | No
               f"핵심 키워드: {keyword}\n오늘: {date.today().isoformat()}\n\n"
               f"=== 사실 시트 ===\n{facts['facts']}\n\n"
               f"=== 검색으로 확인된 출처 URL ===\n" + "\n".join(facts["cited_urls"]))
+    hints = _performance_hints(blog, keyword)
+    if hints:
+        prompt += ("\n\n=== 운영 데이터 (이 블로그 글의 실제 유입) ===\n" + hints +
+                   "\n이 데이터는 제목 구성과 다룰 질문을 고르는 데만 쓴다. 수치·사실은 여전히 사실 시트에서만 가져온다.")
     if feedback and previous:
         prev = {k: v for k, v in previous.items() if not k.startswith("_")}
         prompt += ("\n\n=== 이전 초안 (JSON) ===\n" + json.dumps(prev, ensure_ascii=False) +

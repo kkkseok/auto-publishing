@@ -258,6 +258,30 @@ or the visible `[광고]` label), so double insertion is impossible.
 `AFFILIATE_NOTICE_IN_TITLE=true` additionally prefixes titles with `[광고]` —
 off by default because it costs CTR; turn it on only if review fails again.
 
+### Traffic feedback loop (2026-10-19)
+
+Publishing alone produced 840 posts nobody read, so every published post's
+traffic now feeds back into what gets written next:
+
+```
+pipelines/traffic_collect (08:20)  → data/traffic.db
+  sources/traffic_gsc     Search Console API (ADC, webmasters.readonly) — C·D per page+query
+  sources/traffic_naver   blog.stat.naver.com internal JSON via the blog's Aside session — A·B
+                          per-post views + blog-level search queries (match posts by logNo:
+                          the stat API reports the account's alias id, e.g. bluesky0211)
+  → common/content_insights.build() → data/content_insights.json
+       keyword_planner.plan()  × feedback(): topic multiplier 0.5–2.0 + 1.3 for queries seen
+       draft_writer.write()    "운영 데이터" prompt block: titles that got visits, real queries
+       weekly_kpi              유입 section
+pipelines/content_revise (08:50)  low_ctr / striking posts → rewrite via write(feedback, previous)
+  → check_draft → <blog>_draft_rev<n>.json → Telegram force_reply → bridge long-poll
+  → common/revisions resolve_by_tg_message_id (approved/rejected in data/revisions.json)
+```
+
+Posts younger than 14 days are `new` and never judged; with no mature posts
+every multiplier is 1.0, i.e. the old behaviour. Applying an approved revision
+to the live post is **not implemented yet** — approvals only get recorded.
+
 ### Removed tracks (2026-10-15)
 
 Newspick and AliExpress pipelines, sources, login tools and the

@@ -559,6 +559,14 @@ def _telegram_long_poll_loop() -> None:
                 except Exception as e:
                     log(f"[bridge] Threads 승인 처리 예외 (캡차로 계속): {e}", "warn")
 
+                # 1.5) 기존 글 수정안 승인 (common/revisions)
+                try:
+                    from common.revisions import resolve_by_tg_message_id as resolve_revision
+                    if resolve_revision(reply_msg_id, text, chat_id=msg.get("chat", {}).get("id")):
+                        continue
+                except Exception as e:
+                    log(f"[bridge] 수정안 승인 처리 예외 (캡차로 계속): {e}", "warn")
+
                 # 2) DKAPTCHA 답안
                 item_id = find_item_by_tg_message_id(reply_msg_id)
                 if item_id:

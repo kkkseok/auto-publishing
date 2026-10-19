@@ -152,6 +152,12 @@ def build_report(end: date | None = None) -> str:
         lines.append(f"• 실행: 성공 {ok_runs} · 실패 {fail_runs}")
         for m, c in sorted(bad.items(), key=lambda kv: -kv[1]["failure"]):
             lines.append(f"  └ {m}: 실패 {c['failure']}/{sum(c.values())}")
+
+    from common import content_insights   # 글별 유입 (pipelines/traffic_collect 가 매일 갱신)
+    traffic = content_insights.summary_text()
+    lines.append("" if traffic else "• 유입: 분석 데이터 없음 (traffic_collect 실행 여부 확인)")
+    if traffic:
+        lines.append(traffic)
     return "\n".join(lines)
 
 

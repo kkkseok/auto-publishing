@@ -30,6 +30,16 @@ class Diagnosis:
 # stderr_tail 전체에 대해 search 수행.
 _PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (
+        re.compile(r"\[유입\] 수집 실패 — 서치콘솔", re.I),
+        "서치콘솔 수집 실패",
+        "gcloud auth application-default login 에 webmasters.readonly 범위 포함 여부 확인",
+    ),
+    (
+        re.compile(r"\[유입\] 수집 실패 — 네이버", re.I),
+        "네이버 블로그 통계 수집 실패",
+        "Aside 계정(NAVER_ASIDE_ACCOUNT_INFO/PRICE)의 네이버 로그인 확인 — python -m pipelines.login_check",
+    ),
+    (
         re.compile(r"등록되지\s*않은\s*인증키|DATA_GO_KR_KEY\s*env\s*누락", re.I),
         "data.go.kr 인증키 폐기/만료",
         ".env DATA_GO_KR_KEY 재발급 후 교체",

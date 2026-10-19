@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -43,9 +44,9 @@ def _used() -> dict:
         return {}
 
 
-def _mark_used(keyword: str, kind: str) -> None:
+def _mark_used(keyword: str, kind: str, skipped: str = "") -> None:
     data = _used()
-    data[keyword] = {"kind": kind, "day": date.today().isoformat()}
+    data[keyword] = {"kind": kind, "day": date.today().isoformat(), **({"skipped": skipped} if skipped else {})}
     USED.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
@@ -66,6 +67,59 @@ def _pick(kind: str) -> dict | None:
     return cands[0] if cands else None
 
 
+# 공식 출처로 수치를 확인하지 못한 주제는 초안에 '확인 필요'가 남아 품질 기준에서 막힌다 —
+# 세금·법령 주제에서 반복됐다(10-17~19 A 3일 연속 미발행). 그런 키워드는 발행·대기 등록 전에
+# 버리고 다음 후보로 다시 쓴다. 버린 키워드도 사용 기록에 남겨 같은 씨앗을 30일 쉬게 한다.
+UNVERIFIED = "미확인 표시가 남아 있음"
+KEYWORD_TRIES = int(os.getenv("BLOG_KEYWORD_TRIES", "3") or 3)
+# 스케줄러는 30분(SCHEDULE_SUBPROCESS_TIMEOUT)에 자식을 죽인다. 한 번 시도가 4~5분이라
+# 20분이 지나면 새 키워드를 시작하지 않는다 — 생활정보·가격형이 이 예산을 함께 쓴다.
+RETRY_BUDGET_SEC = int(os.getenv("BLOG_RETRY_BUDGET_SEC", "1200") or 1200)
+_STARTED = time.monotonic()
+
+
+class UnverifiedKeyword(RuntimeError):
+    pass
+
+
+def _reject_unverified(keyword: str, blog: str, draft: dict) -> None:
+    from pipelines.blog_job import check_draft
+    if UNVERIFIED in check_draft(draft):
+        raise UnverifiedKeyword(f"[{blog}] '{keyword}' 초안에 미확인 표시 — 공식 수치를 확보하지 못함")
+
+
+def _with_retries(kind: str, keyword: str, make, blogs: list[str]) -> int:
+    """키워드를 골라 make(keyword, blogs). 미확인 표시로 막히면 다음 후보로 KEYWORD_TRIES 번까지.
+
+    키워드를 직접 준 수동 실행은 다시 고르지 않는다 — 막히면 그대로 실패로 남긴다.
+    """
+    label = "생활정보" if kind == "info" else "가격형"
+    for attempt in range(1 if keyword else KEYWORD_TRIES):
+        if attempt and time.monotonic() - _STARTED > RETRY_BUDGET_SEC:
+            log(f"[블로그] {label} 재시도 중단 — 실행 {RETRY_BUDGET_SEC // 60}분 예산 초과", "warn")
+            break
+        kw, meta = keyword, ""
+        if not kw:
+            pick = _pick(kind)
+            if not pick:
+                log(f"[블로그] {label} 키워드 후보 없음 (검색광고 API 확인)", "error")
+                return 0
+            kw = pick["keyword"]
+            meta = f" 월 {pick['total']:,}회 · 경쟁 {pick['comp']}" + (
+                f" · 유입가중 {pick['feedback']}" if pick.get("feedback", 1.0) != 1.0 else "")
+        log(f"[블로그] {label} {blogs} — {kw}{meta}" + (f" (재시도 {attempt + 1}/{KEYWORD_TRIES})" if attempt else ""), "step")
+        try:
+            done = make(kw, blogs)
+        except UnverifiedKeyword as e:
+            _mark_used(kw, kind, skipped="unverified")
+            log(f"[블로그] {e} — 다음 키워드로", "warn")
+            continue
+        _mark_used(kw, kind)
+        return done
+    log(f"[블로그] {label} 시도한 키워드 모두 미확인 표시로 막힘 — 오늘 {label} 글 없음", "error")
+    return 0
+
+
 def make_and_publish(keyword: str, blogs: list[str]) -> int:
     slug = re.sub(r"[^0-9A-Za-z가-힣]+", "", keyword)[:20]
     out = _ROOT / "data" / "drafts" / f"{date.today():%y%m%d}_{slug}"
@@ -76,13 +130,14 @@ def make_and_publish(keyword: str, blogs: list[str]) -> int:
     else:
         facts = research(keyword)
         facts_path.write_text(json.dumps(facts, ensure_ascii=False, indent=1), encoding="utf-8")
-    published = 0
+    drafts = {}
     for blog in blogs:
         draft = write(keyword, blog, facts)
         (out / f"{blog}_draft.json").write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
         (out / f"{blog}_preview.html").write_text(preview_page(draft, blog), encoding="utf-8")
-        published += _publish_or_queue(blog, keyword, draft, out)
-    return published
+        _reject_unverified(keyword, blog, draft)
+        drafts[blog] = draft
+    return sum(_publish_or_queue(blog, keyword, draft, out) for blog, draft in drafts.items())
 
 
 def _publish_or_queue(blog: str, keyword: str, draft: dict, out: Path) -> bool:
@@ -103,15 +158,16 @@ def make_price_posts(keyword: str, blogs: list[str]) -> int:
         return 0
     facts = price_writer.facts(keyword, products)
     (out / "facts.json").write_text(json.dumps(facts, ensure_ascii=False, indent=1), encoding="utf-8")
-    done = 0
+    drafts = {}
     for blog in blogs:
         prods = price_writer.for_blog(products, blog)
         draft = write(keyword, blog, facts)
         (out / f"{blog}_draft.json").write_text(json.dumps(draft, ensure_ascii=False, indent=1), encoding="utf-8")
         (out / f"{blog}_products.json").write_text(json.dumps(prods, ensure_ascii=False, indent=1), encoding="utf-8")
         (out / f"{blog}_preview.html").write_text(preview_page(draft, blog, products=prods), encoding="utf-8")
-        done += _publish_or_queue(blog, keyword, draft, out)
-    return done
+        _reject_unverified(keyword, blog, draft)
+        drafts[blog] = draft
+    return sum(_publish_or_queue(blog, keyword, draft, out) for blog, draft in drafts.items())
 
 
 def _blogs(env: str, default: str = "") -> list[str]:
@@ -122,34 +178,14 @@ def run_price(keyword: str = "", blogs: list[str] | None = None) -> tuple[int, i
     blogs = _blogs("BLOG_DAILY_PRICE_BLOGS") if blogs is None else blogs
     if not blogs:
         return 0, 0
-    if not keyword:
-        pick = _pick("price")
-        if not pick:
-            log("[블로그] 가격형 키워드 후보 없음 (검색광고 API 확인)", "error")
-            return 0, len(blogs)
-        keyword = pick["keyword"]
-    log(f"[블로그] 가격형 {blogs} — {keyword}", "step")
-    done = make_price_posts(keyword, blogs)
-    _mark_used(keyword, "price")
-    return done, len(blogs)
+    return _with_retries("price", keyword, make_price_posts, blogs), len(blogs)
 
 
 def run_info(keyword: str = "", blogs: list[str] | None = None) -> tuple[int, int]:
     blogs = _blogs("BLOG_DAILY_BLOGS", "A") if blogs is None else blogs
     if not blogs:
         return 0, 0
-    meta = ""
-    if not keyword:
-        pick = _pick("info")
-        if not pick:
-            log("[블로그] 생활정보 키워드 후보 없음 (검색광고 API 확인)", "error")
-            return 0, len(blogs)
-        keyword = pick["keyword"]
-        meta = f"월 {pick['total']:,}회 · 경쟁 {pick['comp']}"
-    log(f"[블로그] 생활정보 {blogs} — {keyword} {meta}", "step")
-    done = make_and_publish(keyword, blogs)
-    _mark_used(keyword, "info")
-    return done, len(blogs)
+    return _with_retries("info", keyword, make_and_publish, blogs), len(blogs)
 
 
 def run(info_keyword: str = "", price_keyword: str = "", only: str = "",

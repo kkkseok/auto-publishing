@@ -295,7 +295,7 @@ the Tistory pipelines' `is_bridge` branches and goes when those are rebuilt.
 
 ### Windows operations
 
-Three scheduled tasks:
+Four scheduled tasks:
 
 - `AutoPublishing_Scheduler` — runs `python -m pipelines.scheduler_runner` at
   startup with 1-minute delay; restarts up to 3 times on failure;
@@ -323,6 +323,13 @@ Three scheduled tasks:
   Chrome 116+ tends to ignore `--no-startup-window` and `--start-minimized`
   silently. Without this, the extension does not run when no Chrome window
   is open.
+
+- `AutoPublishing_Aside` — runs `tools/aside_background_launcher.ps1` at
+  logon (registered by `tools/install_aside_autostart.ps1`, no admin needed).
+  Starts Aside minimized unless it is already running. Every Naver step —
+  publishing, blog stats, Search Advisor submission — goes through
+  `aside repl`, which fails with "Aside isn't running" when the app is closed;
+  that is what a reboot left behind on 2026-10-22.
 
 Orphan Playwright Chromium cleanup is built into
 `common/browser_profile.py` `_kill_orphan_chromium_windows()`: when a parent

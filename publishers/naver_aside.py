@@ -150,8 +150,13 @@ def publish(blog_id: str, title: str, body_html: str, tags: list[str], *,
     text = re.sub(r"\x1b\[[0-9;]*m", "", proc.stdout.decode("utf-8", "replace"))
     m = re.search(r"RESULT (\{.*\})", text)
     if not m:
-        err = re.findall(r"(?:Error|error)[^\n]{0,200}", text)
-        return NaverPublishResult(False, message=(err[-1] if err else text[-300:]).strip())
+        # CLI 연결 오류("Aside isn't running", 프로필 미연결 등)는 stderr 로만 나온다 — stdout 만
+        # 보면 실패 사유가 빈 문자열로 남았다(11-17 B 전기밥솥).
+        err_text = re.sub(r"\x1b\[[0-9;]*m", "", proc.stderr.decode("utf-8", "replace"))
+        both = text + "\n" + err_text
+        err = re.findall(r"(?:Error|error)[^\n]{0,200}", both)
+        msg = (err[-1] if err else both.strip()[-300:]).strip()
+        return NaverPublishResult(False, message=msg or f"aside repl 출력 없음 (rc={proc.returncode})")
     out = json.loads(m.group(1))
     if out.get("error"):
         return NaverPublishResult(False, message=out["error"])

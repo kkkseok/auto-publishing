@@ -65,6 +65,19 @@ def _indexable(url: str) -> bool:
                    for d in _excluded_index_domains())
 
 
+def _google_api_enabled() -> bool:
+    """Google Indexing API 는 채용공고·라이브 방송 페이지용이다 — 블로그 글은 응답이 ok 여도
+    색인되지 않았다(11-17: ok 받은 kkkseok 6건을 구글이 '알려지지 않은 URL' 로 봄).
+    티스토리 사이트맵이 서치콘솔에 등록돼 매일 수집되므로 기본은 끄고 사이트맵에 맡긴다."""
+    return os.getenv("GOOGLE_INDEXING_API", "false").strip().lower() in ("1", "true", "yes")
+
+
+def _by_original(results: dict, pending: list) -> dict:
+    """제출한 주소(canonical) 기준 결과를 대기열의 원래 주소 기준으로 돌린다."""
+    back = {it.get("_submit", it["url"]): it["url"] for it in pending}
+    return {back.get(u, u): r for u, r in results.items()}
+
+
 def _submit_google(pending: list) -> list:
     """Google 색인 제출. 성공한 URL 목록 반환.
 
@@ -74,10 +87,15 @@ def _submit_google(pending: list) -> list:
     if not pending:
         log("[색인] Google 미제출 URL 없음", "info")
         return []
+    if not _google_api_enabled():
+        n = mark_skipped_bulk([it["url"] for it in pending], "google_indexed", status="sitemap")
+        log(f"[색인] Google: Indexing API 끔 — {n}건은 서치콘솔 사이트맵으로 수집 (GOOGLE_INDEXING_API)", "info")
+        return []
     try:
         from common.indexing_google import submit_urls
-        urls = [item["url"] for item in pending[:200]]
-        results = submit_urls(urls)
+        pending = pending[:200]
+        urls = [item.get("_submit", item["url"]) for item in pending]
+        results = _by_original(submit_urls(urls), pending)
         # 모든 결과를 publish_queue 에 기록 (성공/실패 모두) — 사유 보존
         mark_status_bulk(results, "google_indexed")
         ok = [u for u, s in results.items() if s == "ok"]
@@ -95,8 +113,9 @@ def _submit_naver(pending: list) -> list:
         return []
     try:
         from common.indexing_naver import submit_urls
-        urls = [item["url"] for item in pending[:50]]
-        results = submit_urls(urls)
+        pending = pending[:50]
+        urls = [item.get("_submit", item["url"]) for item in pending]
+        results = _by_original(submit_urls(urls), pending)
         mark_status_bulk(results, "naver_indexed")
         ok = [u for u, s in results.items() if s == "ok"]
         log(f"[색인] Naver: {len(ok)}/{len(urls)}건 성공", "step")
@@ -106,13 +125,23 @@ def _submit_naver(pending: list) -> list:
         return []
 
 
-def _is_public(url: str) -> bool:
-    """로그인 없이 열리는 글인지 — 비공개로 돌린 예전 글(티스토리는 403)을 걸러낸다."""
+def _public_canonical(url: str) -> str | None:
+    """로그인 없이 열리면 제출할 주소(canonical), 비공개·삭제(200 아님)면 None.
+
+    티스토리는 발행 기록이 /41 같은 숫자 주소지만 canonical 은 /entry/<제목> 이다. 숫자 주소를
+    제출하면 검색엔진이 canonical 로 다시 찾아가야 해서 제출 효과가 약하다 — canonical 을 낸다.
+    """
+    import html
+    import re
     import requests
     try:
-        return requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}).status_code == 200
+        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
     except requests.RequestException:
-        return True   # 일시 오류로 영구 제외하지 않는다 — 제출 단계에서 다시 걸러진다
+        return url   # 일시 오류로 영구 제외하지 않는다 — 원래 주소로 제출
+    if r.status_code != 200:
+        return None
+    m = re.search(r'<link rel="canonical" href="([^"]+)"', r.text)
+    return html.unescape(m.group(1)) if m else url
 
 
 def _filter_indexable(pending: list, field: str) -> list:
@@ -123,11 +152,17 @@ def _filter_indexable(pending: list, field: str) -> list:
         n = mark_skipped_bulk(excluded, field)
         log(f"[색인] 미소유 도메인 {n}건 제외(SKIP) — {field}", "info")
     owned = [it for it in pending if _indexable(it.get("url", ""))]
-    hidden = [it.get("url", "") for it in owned if not _is_public(it.get("url", ""))]
+    out, hidden = [], []
+    for it in owned:
+        canon = _public_canonical(it.get("url", ""))
+        if canon is None:
+            hidden.append(it.get("url", ""))
+        else:
+            out.append(dict(it, _submit=canon))
     if hidden:
         n = mark_skipped_bulk(hidden, field)
         log(f"[색인] 비공개·삭제 글 {n}건 제외(SKIP) — {field}", "info")
-    return [it for it in owned if it.get("url", "") not in hidden]
+    return out
 
 
 def run() -> None:

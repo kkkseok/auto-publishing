@@ -235,7 +235,7 @@ def mark_status_bulk(results: dict, field: str,
 
 
 def mark_skipped_bulk(urls: list, field: str,
-                      queue_path: str = DEFAULT_QUEUE_PATH) -> int:
+                      queue_path: str = DEFAULT_QUEUE_PATH, status: str = "excluded_domain") -> int:
     """여러 URL 의 field 를 'SKIP' 으로 표시해 대기열에서 영구 제외.
 
     소유하지 않은 도메인(threads 등 SNS)은 Google/Naver 색인이 구조적으로 불가
@@ -252,7 +252,7 @@ def mark_skipped_bulk(urls: list, field: str,
     for item in data:
         if item.get("url", "") in url_set and item.get(field) not in ("O", "SKIP"):
             item[field] = "SKIP"
-            item[f"{field}_status"] = "excluded_domain"
+            item[f"{field}_status"] = status
             count += 1
     if count:
         _save(data, queue_path)

@@ -120,10 +120,16 @@ def publish(draft_id: str, private: bool = False) -> bool:
         if thumb:   # 확장이 이 자리에 썸네일을 붙여넣는다 — 고지 박스 다음, 본문 앞
             notice, rest = _split_notice(body)
             body = notice + '<p id="ap-thumb">&nbsp;</p>' + rest
-        res = pub.post(draft["title"], body, tags=draft["tags"], category=category_for(blog, item["keyword"]),
-                       thumbnail_b64=thumb, home_subject=home_subject_for(blog, item["keyword"]),
-                       visibility=0 if private else 20,
-                       source=source, keyword=item["keyword"], affiliate_url=link)
+        try:
+            res = pub.post(draft["title"], body, tags=draft["tags"], category=category_for(blog, item["keyword"]),
+                           thumbnail_b64=thumb, home_subject=home_subject_for(blog, item["keyword"]),
+                           visibility=0 if private else 20,
+                           source=source, keyword=item["keyword"], affiliate_url=link)
+        except Exception as e:
+            # 예외로 끝나면 'publishing' 에 멈춰 다음 일정에서도 집히지 않았다(11-17 12:30 WinError 5).
+            # 대기(ready)로 되돌려 다음 일정이 다시 집게 하고, 예외는 그대로 올려 실패로 드러낸다.
+            blog_drafts.update(draft_id, status="ready", error=f"대기열 등록 예외: {e}"[:300])
+            raise
         if not res.success:
             return _fail(draft_id, draft["title"], f"티스토리 대기열 등록 실패: {res.message}")
         # 실제 발행·URL 기록·완료 알림은 확장이 끝낸 뒤 브릿지 /done 이 한다

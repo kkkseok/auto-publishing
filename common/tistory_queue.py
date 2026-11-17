@@ -120,7 +120,16 @@ def _save(items: list[dict]) -> None:
     tmp = QUEUE_PATH.with_suffix(".json.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, QUEUE_PATH)
+    # 윈도우는 다른 프로세스(브릿지가 30초마다 읽는다)가 파일을 연 순간에 교체하면 WinError 5 를
+    # 낸다 — 11-17 12:30 발행이 이걸로 죽었다. 잠깐 기다렸다 다시 하고, 끝내 안 되면 그대로 올린다.
+    for attempt in range(10):
+        try:
+            os.replace(tmp, QUEUE_PATH)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.2)
 
 
 def _prune(items: list[dict]) -> list[dict]:

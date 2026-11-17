@@ -66,3 +66,20 @@ def test_reject_unverified_only_for_marker():
     bd._reject_unverified("k", "A", base)   # 통과
     with pytest.raises(bd.UnverifiedKeyword):
         bd._reject_unverified("k", "A", dict(base, intro="금액은 공식 확인 필요 " + "가" * 1600))
+
+
+def test_pick_filters_cooldown_before_truncating(tmp_path, monkeypatch):
+    """상위 후보가 전부 쿨다운 씨앗이어도 그 아래 후보를 고른다 (11-11~17 가격형 0건 회귀)."""
+    import json
+    from datetime import date
+    used = tmp_path / "used.json"
+    used.write_text(json.dumps({"가습기추천": {"kind": "price", "day": date.today().isoformat()}},
+                               ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(bd, "USED", used)
+    rows = [{"keyword": f"가습기{i}", "score": 100 - i} for i in range(50)] + [{"keyword": "제습기추천", "score": 1}]
+
+    def fake_plan(kind, used=None, top=30):
+        return rows if top is None else rows[:top]
+    monkeypatch.setattr(bd, "plan", fake_plan)
+    monkeypatch.setattr(bd, "seed_of", lambda k, kind: "가습기" if "가습기" in k else "제습기")
+    assert bd._pick("price")["keyword"] == "제습기추천"

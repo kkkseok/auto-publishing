@@ -116,8 +116,8 @@ def seed_of(keyword: str, kind: str) -> str:
     return next((seed for group in SEEDS[kind] for seed in group if seed in k), "")
 
 
-def plan(kind: str, used: set[str] | None = None, top: int = 30) -> list[dict]:
-    """유형(info|price)별 상위 후보. used 에 있는 키워드는 뺀다."""
+def plan(kind: str, used: set[str] | None = None, top: int | None = 30) -> list[dict]:
+    """유형(info|price)별 상위 후보. used 에 있는 키워드는 뺀다. top=None 이면 전부."""
     used = {re.sub(r"\s+", "", u) for u in (used or set())}
     seen: dict[str, dict] = {}
     for seeds in SEEDS[kind]:

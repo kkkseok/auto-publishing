@@ -58,12 +58,16 @@ def _pick(kind: str) -> dict | None:
 
     키워드 글자만 비교하면 '에너지바우처 신청' 다음 날 '에너지바우처대상'을 골라 같은 블로그에
     거의 같은 글이 두 개 생겼다(10-16). 같은 블로그의 비슷한 글은 검색에서 서로 경쟁한다.
+
+    쿨다운은 상위 N개로 자르기 전에 거른다. 자른 뒤에 거르면 점수 상위가 한두 씨앗(가습기
+    변형 수십 개)에 몰릴 때 후보가 0개가 된다 — 11-11~17 가격형이 7일 연속 0건이었다
+    (전체 2,141개 중 쿨다운 통과 866개였는데 상위 40개가 전부 쿨다운 씨앗).
     """
     used = _used()
     since = (date.today() - timedelta(days=SEED_COOLDOWN_DAYS)).isoformat()
     recent = {seed_of(k, kind) for k, v in used.items() if v.get("kind") == kind and v.get("day", "") >= since}
     recent.discard("")
-    cands = [c for c in plan(kind, used=set(used), top=40) if seed_of(c["keyword"], kind) not in recent]
+    cands = [c for c in plan(kind, used=set(used), top=None) if seed_of(c["keyword"], kind) not in recent]
     return cands[0] if cands else None
 
 

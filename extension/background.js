@@ -460,7 +460,18 @@ async function onTabNavigated(details) {
       await markPublishFail(item, `발행 감지 글(${m[1]}) 제목 불일치 — 오귀속 방지 실패 처리`);
       return;
     }
-    // 목록 미조회/ID 미발견이면 제목 검증 불가 — 종전대로 성공 처리
+    if (!entry && posts) {
+      // 이동한 ID 가 목록에 없다 — 임시저장 번호 등 실제 글이 아닌 ID 였다(539 로 기록됐지만
+      // 실제 글은 538, 539 는 404 — 11-17 진단). 제목이 같은 글이 있으면 그 ID 로 기록한다.
+      const byTitle = posts.find((p) => pickTitle(p) != null && titlesMatch(pickTitle(p), item.title));
+      if (byTitle && pickId(byTitle)) {
+        const id = pickId(byTitle);
+        console.log("[bridge] 이동 ID", m[1], "목록에 없음 — 제목 일치 글", id, "로 기록");
+        await markPublishDone(item, `https://${item.blog_name}.tistory.com/${id}`, id);
+        return;
+      }
+    }
+    // 목록 미조회/ID·제목 모두 미발견이면 검증 불가 — 종전대로 성공 처리
     await markPublishDone(item, u, m[1]);
     return;
   }

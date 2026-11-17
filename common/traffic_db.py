@@ -6,6 +6,8 @@
 
 테이블:
   posts    — 우리가 발행한 글 (blog_drafts.json 에서 동기화). url 이 기준 키.
+             canonical 은 티스토리 글 페이지의 <link rel=canonical> (/entry/<제목>) — 서치콘솔은
+             이 주소로 보고하므로 수집기가 이걸로 서치콘솔 행을 url 에 붙인다.
   metrics  — 글·날짜·출처별 수치. source: gsc(구글) | naver_stat(네이버 블로그 통계)
              gsc 는 impressions·clicks·position, naver_stat 는 views 만 채운다.
   queries  — 검색어별 수치. gsc 는 글 단위, 네이버 통계는 블로그 단위라 url 에
@@ -48,7 +50,13 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path or PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    if "canonical" not in {r["name"] for r in conn.execute("PRAGMA table_info(posts)")}:
+        conn.execute("ALTER TABLE posts ADD COLUMN canonical TEXT DEFAULT ''")
     return conn
+
+
+def set_canonical(conn: sqlite3.Connection, url: str, canonical: str) -> None:
+    conn.execute("UPDATE posts SET canonical=? WHERE url=?", (canonical, url))
 
 
 def upsert_post(conn: sqlite3.Connection, **p) -> None:

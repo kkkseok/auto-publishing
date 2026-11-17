@@ -338,9 +338,12 @@ def render_html(draft: dict, images: dict[str, str] | None = None, blog: str = "
     color = ACCENT.get(blog, "#333")
     tistory = blog in ("C", "D")
     p_style = f"margin:0 0 14px;line-height:1.85;font-size:16px;{_KEEP}"
+    # 기준일·출처 줄은 도입 문단 뒤에 둔다. 티스토리·검색엔진은 본문 앞부분을 검색 결과 설명문으로
+    # 쓰는데, 이 줄이 맨 앞이면 설명문이 "🗓 2026.11.10 기준 · 출처: …" 로 시작했다(11-17 진단).
+    # 가격형의 대가성 문구는 affiliate_notice 가 이 앞에 붙인다 — 그 규칙(맨 위)은 그대로다.
     out = [f'<div style="{_KEEP}">',
-           f'<p style="color:#777;font-size:13px;{_KEEP}">🗓 {_e(draft["basis_line"])}</p>',
-           f'<p style="{p_style}">{_rich(draft["intro"], color)}</p>']
+           f'<p style="{p_style}">{_rich(draft["intro"], color)}</p>',
+           f'<p style="color:#777;font-size:13px;{_KEEP}">🗓 {_e(draft["basis_line"])}</p>']
 
     summary = "".join(f'<li style="margin:6px 0;{_KEEP}">{_rich(p, color)}</li>' for p in draft["summary_points"])
     if tistory:

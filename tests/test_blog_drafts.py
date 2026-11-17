@@ -71,3 +71,22 @@ def test_seed_of_groups_spacing_variants():
     assert seed_of("에너지바우처대상", "info") == seed_of("에너지바우처 신청", "info") == "에너지바우처"
     assert seed_of("로봇청소기 추천", "price") == "로봇청소기"
     assert seed_of("무관한 말", "info") == ""
+
+
+def test_visible_text_starts_with_notice_then_intro():
+    """검색 결과 설명문 = 본문 앞부분 — 대가성 문구 다음이 기준일·출처 줄이 아니라 도입 문단이어야 한다."""
+    import html as _html
+    import re
+    from common import affiliate_notice
+    from common.draft_writer import render_html
+    draft = _draft(basis_line="2026.11.05 기준 · 출처: 쿠팡", intro="아이스박스는 용량과 보냉 조건을 먼저 봅니다.",
+                   summary_points=["a"], faq=[], closing="끝", tags=[],
+                   sections=[{"heading": "h", "paragraphs": ["p"], "table_columns": [], "table_rows": [],
+                              "steps": [], "checklist": [], "callout_kind": "none", "callout_text": ""}])
+    body = affiliate_notice.prepend_html(render_html(draft, {}, "D", []), affiliate_notice.COUPANG)
+    text = re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<!--.*?-->", "", body)))).strip()
+    after_notice = text.split("제공받습니다.", 1)[1].strip()
+    assert after_notice.startswith("아이스박스는 용량과 보냉 조건을 먼저 봅니다.")
+    assert text.index("🗓") > text.index("아이스박스는")
+    info = render_html(draft, {}, "C")
+    assert re.sub(r"<[^>]+>", "", info).lstrip().startswith("아이스박스는")
